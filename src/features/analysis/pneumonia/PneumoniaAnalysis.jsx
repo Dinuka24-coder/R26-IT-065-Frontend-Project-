@@ -1,6 +1,5 @@
 import { useState } from "react";
-// TODO (Pneumonia owner): uncomment when your backend is ready
-// import { predictPneumonia } from "../../../api/component2Api";
+import { predictPneumonia } from "../../../api/component2Api";
 import AnalysisLayout from "../shared/AnalysisLayout";
 import PatientSelector from "../shared/PatientSelector";
 import ScanUploader from "../shared/ScanUploader";
@@ -28,24 +27,34 @@ export default function PneumoniaAnalysis({ navigate }) {
   async function run() {
     setError(""); setLoading(true); setResult(null);
     try {
-      // TODO: replace the line below with your real call
-      // setResult(await predictPneumonia(patientId, file));
-      setError("Pneumonia backend is not connected yet.");
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+      setResult(await predictPneumonia(patientId, file));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const isPos = Boolean(result?.prediction?.includes("Detected"));
+  const isPos = Boolean(
+    result?.prediction?.toUpperCase().includes("DETECTED") ||
+    result?.prediction?.toUpperCase().includes("PNEUMONIA") ||
+    result?.diagnosis?.toUpperCase().includes("PNEUMONIA")
+  );
 
-  // TODO: add your component-specific result fields here
   const extras = result && isPos ? [
-    // { label: "Severity", value: result.severity },
+    ...(result.severity ? [{ label: "Severity", value: result.severity }] : []),
+    ...(result.affected_area_percent !== undefined && Number(result.affected_area_percent) > 0
+      ? [{ label: "Affected Lung Area", value: `${result.affected_area_percent}%` }]
+      : []),
+    ...(result.mean_intensity !== undefined && Number(result.mean_intensity) > 0
+      ? [{ label: "Activation Intensity", value: `${result.mean_intensity}` }]
+      : []),
   ] : [];
 
   return (
     <AnalysisLayout
       title="Pneumonia Analysis"
-      subtitle="X-ray · AI detection + Grad-CAM"
+      subtitle="X-ray · MobileNetV2 + Grad-CAM"
       navigate={navigate}
       onRun={run} canRun={Boolean(patientId && file)} loading={loading} error={error}
       results={result && (
@@ -53,6 +62,7 @@ export default function PneumoniaAnalysis({ navigate }) {
           <ResultCard prediction={result.prediction} confidence={result.confidence}
             isPositive={isPos} urgency={result.urgency} extras={extras} />
           <HeatmapCard heatmap={result.heatmap_base64} title="Grad-CAM Heatmap"
+            caption="Grad-CAM activation overlay highlighting pneumonia-affected regions"
             emptyText="No pneumonia detected in this scan." />
         </>
       )}
