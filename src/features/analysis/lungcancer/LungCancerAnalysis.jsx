@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "./lungcancer.css";
 import { FileImage, Layers3 } from "lucide-react";
 import { predictLungCancer } from "../../../api/component4Api";
 import { useTheme } from "../../../context/ThemeContext";
