@@ -5,6 +5,7 @@ import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
 
 import LoginPage from "./features/auth/LoginPage";
+import ChangePasswordModal from "./features/auth/ChangePasswordModal";
 import DashboardPage from "./features/dashboard/DashboardPage";
 import SearchPatientPage from "./features/patients/SearchPatientPage";
 import RegisterPatientPage from "./features/patients/RegisterPatientPage";
@@ -23,12 +24,24 @@ import ReportsPage from "./features/reports/ReportsPage";
 import SettingsPage from "./features/settings/SettingsPage";
 
 function Shell() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, updateUser } = useAuth();
   const { t } = useTheme();
   const [page, setPage] = useState("dashboard");
   const [ctx, setCtx] = useState({});
 
   if (!user) return <LoginPage />;
+
+  // ── Force password change if an admin reset it ──────────────
+  if (user.must_change_password) {
+    return (
+        <div style={{ minHeight: "100vh", background: t.bg, display: "grid", placeItems: "center" }}>
+          <ChangePasswordModal
+              forced
+              onSuccess={() => updateUser({ must_change_password: false })}
+          />
+        </div>
+    );
+  }
 
   function navigate(next, extra = {}) {
     setCtx((c) => ({ ...c, ...extra }));
@@ -57,24 +70,24 @@ function Shell() {
   };
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: t.bg, color: t.text }}>
-      <Sidebar page={page} navigate={navigate} />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <TopBar navigate={navigate} />
-        <main style={{ flex: 1, padding: "28px 32px", overflowY: "auto" }}>
-          {pages[page] || pages["dashboard"]}
-        </main>
+      <div style={{ display: "flex", minHeight: "100vh", background: t.bg, color: t.text }}>
+        <Sidebar page={page} navigate={navigate} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <TopBar navigate={navigate} />
+          <main style={{ flex: 1, padding: "28px 32px", overflowY: "auto" }}>
+            {pages[page] || pages["dashboard"]}
+          </main>
+        </div>
       </div>
-    </div>
   );
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <Shell />
-      </AuthProvider>
-    </ThemeProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <Shell />
+        </AuthProvider>
+      </ThemeProvider>
   );
 }
