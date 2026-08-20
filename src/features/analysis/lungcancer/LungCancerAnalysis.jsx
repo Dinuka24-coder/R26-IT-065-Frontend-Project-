@@ -1,6 +1,6 @@
 import "./lungcancer.css";
-import { useState } from "react";
-import { FileImage, Layers3, AlertTriangle } from "lucide-react";
+import { useState, lazy, Suspense } from "react";
+import { FileImage, Layers3, AlertTriangle, Loader } from "lucide-react";
 import { predictLungCancer } from "../../../api/component4Api";
 import { useTheme } from "../../../context/ThemeContext";
 import AnalysisLayout from "../shared/AnalysisLayout";
@@ -12,8 +12,29 @@ import PageHeader from "../../../components/ui/PageHeader";
 import Button from "../../../components/ui/Button";
 import Card from "../../../components/ui/Card";
 import DicomFileSelector from "./DicomFileSelector";
-import DicomViewerPage from "./DicomViewerPage";
-import VolumeViewerPage from "./VolumeViewerPage";
+// Lazy-loaded: these import @cornerstonejs/core, which transitively
+// requires @kitware/vtk.js -> xmlbuilder2 -> Node's events module -
+// evaluating that chain eagerly (via a static import) was crashing the
+// app on EVERY page load, including the login page, before any user was
+// authenticated (confirmed root cause: App.jsx statically imports this
+// file at the top level, unconditionally, regardless of which page is
+// actually shown). Code-splitting these into separate chunks means
+// Cornerstone is only fetched/evaluated once the user actually opens
+// the DICOM CT Viewer.
+const DicomViewerPage = lazy(() => import("./DicomViewerPage"));
+const VolumeViewerPage = lazy(() => import("./VolumeViewerPage"));
+
+// Small loading state shown while the lazy-loaded DICOM viewer chunk
+// (and its Cornerstone dependency tree) is being fetched/evaluated -
+// only reached after the user explicitly opens the DICOM CT Viewer.
+function DicomLoadingFallback({ t }) {
+    return (
+        <div style={{ textAlign: "center", padding: 48, color: t.dim }}>
+            <Loader size={28} className="spin" />
+            <div style={{ marginTop: 10, fontSize: 13 }}>Loading DICOM viewer...</div>
+        </div>
+    );
+}
 
 // Component 4 (Lung Cancer) orchestrator. Follows the EXACT patient-ID
 // flow already used by Pneumothorax (src/features/analysis/pneumothorax/
@@ -117,10 +138,12 @@ export default function LungCancerAnalysis({ navigate }) {
         // --- 3D volume viewer - reached from the 2D viewer's button ----------
         if (dicomSubView === "3d") {
             return (
-                <VolumeViewerPage
-                    seriesId={dicomInfo?.series_id}
-                    onBack={() => setDicomSubView("2d")}
-                />
+                <Suspense fallback={<DicomLoadingFallback t={t} />}>
+                    <VolumeViewerPage
+                        seriesId={dicomInfo?.series_id}
+                        onBack={() => setDicomSubView("2d")}
+                    />
+                </Suspense>
             );
         }
 
@@ -161,14 +184,16 @@ export default function LungCancerAnalysis({ navigate }) {
         // --- 2D DICOM viewer - reached once a series has been inspected ------
         if (dicomSubView === "2d" && dicomInfo) {
             return (
-                <DicomViewerPage
-                    seriesId={dicomInfo.series_id}
-                    patientId={patientId}
-                    dicomMetadata={dicomInfo}
-                    onBack={resetDicomFlow}
-                    onOpenVolumeViewer={() => setDicomSubView("3d")}
-                    onAnalysisResult={handleDicomAnalysisResult}
-                />
+                <Suspense fallback={<DicomLoadingFallback t={t} />}>
+                    <DicomViewerPage
+                        seriesId={dicomInfo.series_id}
+                        patientId={patientId}
+                        dicomMetadata={dicomInfo}
+                        onBack={resetDicomFlow}
+                        onOpenVolumeViewer={() => setDicomSubView("3d")}
+                        onAnalysisResult={handleDicomAnalysisResult}
+                    />
+                </Suspense>
             );
         }
 
