@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { UserPlus, Eye, Trash2, CheckCircle } from "lucide-react";
+import { UserPlus, Eye, Trash2, CheckCircle, KeyRound } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
-import { listDoctors, createDoctor, deleteDoctor } from "../../api/userApi";
+import { listDoctors, createDoctor, deleteDoctor, resetDoctorPassword } from "../../api/userApi";
 import PageHeader from "../../components/ui/PageHeader";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
@@ -20,6 +20,12 @@ export default function ManageDoctorsPage({ navigate }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState(EMPTY);
+
+  // ── Password reset state ─────────────────────────────────────
+  const [resetting, setResetting] = useState(null);
+  const [newPw, setNewPw] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
+
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const valid = f.full_name && f.email && f.registered_number && f.password;
 
@@ -43,47 +49,97 @@ export default function ManageDoctorsPage({ navigate }) {
     load();
   }
 
+  async function doReset() {
+    setResetMsg("");
+    try {
+      await resetDoctorPassword(resetting.id, newPw);
+      setResetMsg(`Password reset. Share this temporary password with ${resetting.full_name}: ${newPw}`);
+      setNewPw("");
+    } catch (e) {
+      setResetMsg(e.message);
+    }
+  }
+
   if (loading) return <Loader />;
 
   return (
-    <div>
-      <PageHeader title="Manage Doctors" subtitle={`${doctors.length} doctor accounts`}
-        actions={<Button onClick={() => setShow(true)}><UserPlus size={15} /> Add Doctor</Button>} />
+      <div>
+        <PageHeader title="Manage Doctors" subtitle={`${doctors.length} doctor accounts`}
+                    actions={<Button onClick={() => setShow(true)}><UserPlus size={15} /> Add Doctor</Button>} />
 
-      <div style={{ display: "grid", gap: 12 }}>
-        {doctors.map((d) => (
-          <Card key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-              <Avatar name={d.full_name} size={44} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{d.full_name}</div>
-                <div style={{ fontSize: 13, color: t.dim }}>{d.email} · {d.registered_number}</div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {doctors.map((d) => (
+              <Card key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                  <Avatar name={d.full_name} size={44} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{d.full_name}</div>
+                    <div style={{ fontSize: 13, color: t.dim }}>{d.email} · {d.registered_number}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button variant="secondary" onClick={() => navigate("doctor-detail", { doctor: d })}>
+                    <Eye size={15} /> View
+                  </Button>
+                  <Button variant="secondary" onClick={() => { setResetting(d); setResetMsg(""); }}
+                          style={{ padding: "8px 11px" }} title="Reset password">
+                    <KeyRound size={15} />
+                  </Button>
+                  <Button variant="danger" onClick={() => remove(d.id)}
+                          style={{ padding: "8px 11px" }} title="Delete">
+                    <Trash2 size={15} />
+                  </Button>
+                </div>
+              </Card>
+          ))}
+          {doctors.length === 0 && (
+              <Card style={{ textAlign: "center", padding: 40, color: t.dim }}>
+                No doctors yet. Add one to get started.
+              </Card>
+          )}
+        </div>
+
+        {/* ── Create Doctor ────────────────────────────────────── */}
+        {show && (
+            <Modal title="Create Doctor" onClose={() => setShow(false)}>
+              <div style={{ display: "grid", gap: 14 }}>
+                <Field label="Full Name" value={f.full_name} onChange={set("full_name")} placeholder="Dr. Anura Wijesekara" />
+                <Field label="Email" type="email" value={f.email} onChange={set("email")} placeholder="anura@hospital.lk" />
+                <Field label="Contact Number" value={f.contact_number} onChange={set("contact_number")} />
+                <Field label="Registered Number" value={f.registered_number} onChange={set("registered_number")} placeholder="SLMC-00000" />
+                <Field label="Password" type="password" value={f.password} onChange={set("password")} />
+                {error && <div style={{ color: "#ef4444", fontSize: 13 }}>{error}</div>}
+                <Button onClick={add} disabled={!valid || saving} full>
+                  <CheckCircle size={15} /> {saving ? "Creating…" : "Create Doctor"}
+                </Button>
               </div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="secondary" onClick={() => navigate("doctor-detail", { doctor: d })}><Eye size={15} /> View</Button>
-              <Button variant="danger" onClick={() => remove(d.id)} style={{ padding: "8px 11px" }} title="Delete"><Trash2 size={15} /></Button>
-            </div>
-          </Card>
-        ))}
-        {doctors.length === 0 && <Card style={{ textAlign: "center", padding: 40, color: t.dim }}>No doctors yet. Add one to get started.</Card>}
-      </div>
+            </Modal>
+        )}
 
-      {show && (
-        <Modal title="Create Doctor" onClose={() => setShow(false)}>
-          <div style={{ display: "grid", gap: 14 }}>
-            <Field label="Full Name" value={f.full_name} onChange={set("full_name")} placeholder="Dr. Anura Wijesekara" />
-            <Field label="Email" type="email" value={f.email} onChange={set("email")} placeholder="anura@hospital.lk" />
-            <Field label="Contact Number" value={f.contact_number} onChange={set("contact_number")} />
-            <Field label="Registered Number" value={f.registered_number} onChange={set("registered_number")} placeholder="SLMC-00000" />
-            <Field label="Password" type="password" value={f.password} onChange={set("password")} />
-            {error && <div style={{ color: "#ef4444", fontSize: 13 }}>{error}</div>}
-            <Button onClick={add} disabled={!valid || saving} full>
-              <CheckCircle size={15} /> {saving ? "Creating…" : "Create Doctor"}
-            </Button>
-          </div>
-        </Modal>
-      )}
-    </div>
+        {/* ── Reset Password ───────────────────────────────────── */}
+        {resetting && (
+            <Modal title={`Reset Password — ${resetting.full_name}`}
+                   onClose={() => { setResetting(null); setResetMsg(""); setNewPw(""); }}>
+              <div style={{ display: "grid", gap: 14 }}>
+                <div style={{ fontSize: 13, color: t.dim, lineHeight: 1.5 }}>
+                  Set a temporary password. The doctor will be required to change it on next login.
+                </div>
+                <Field label="New Temporary Password" type="text" value={newPw}
+                       onChange={(e) => setNewPw(e.target.value)} placeholder="At least 6 characters" />
+                {resetMsg && (
+                    <div style={{
+                      fontSize: 13, padding: "10px 12px", borderRadius: 8,
+                      background: resetMsg.startsWith("Password reset") ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                      color: resetMsg.startsWith("Password reset") ? "#22c55e" : "#ef4444",
+                      wordBreak: "break-word",
+                    }}>{resetMsg}</div>
+                )}
+                <Button onClick={doReset} disabled={newPw.length < 6} full>
+                  <KeyRound size={15} /> Reset Password
+                </Button>
+              </div>
+            </Modal>
+        )}
+      </div>
   );
 }

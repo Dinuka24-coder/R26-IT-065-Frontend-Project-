@@ -70,6 +70,9 @@ export default function LoginPage() {
           }}>
             {loading ? "Signing in…" : "Sign In"}
           </button>
+          <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 20, textAlign: "center", lineHeight: 1.5 }}>
+            Forgot your password? Contact your system administrator to have it reset.
+          </p>
         </div>
       </div>
     </div>
