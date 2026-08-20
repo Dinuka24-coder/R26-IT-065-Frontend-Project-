@@ -60,12 +60,17 @@ export default function DicomViewerPage({
     const elementRef = useRef(null);
     const renderingEngineRef = useRef(null);
     const viewportRef = useRef(null);
+    const wheelHandlerRef = useRef(null);
 
     const [seriesId, setSeriesId] = useState(null);
     const [totalSlices, setTotalSlices] = useState(0);
     const [patientId, setPatientId] = useState("");
 
     const [sliceIndex, setSliceIndex] = useState(0);
+    // Kept in sync with totalSlices state via the effect below - used by
+    // the wheel handler (attached once, in the setup effect) to clamp
+    // correctly without depending on a stale closure over totalSlices.
+    const totalSlicesRef = useRef(0);
 
     // Lung is the default visualization preset, matching the AI model's
     // intended use (lung-cancer analysis).
@@ -107,6 +112,7 @@ export default function DicomViewerPage({
 
         setSeriesId(initialSeriesId);
         setTotalSlices(dicomMetadata.number_of_slices);
+        totalSlicesRef.current = dicomMetadata.number_of_slices;
         setPatientId(initialPatientId || "");
     }, [initialSeriesId, initialPatientId, dicomMetadata]);
 
@@ -145,7 +151,13 @@ export default function DicomViewerPage({
             if (!toolGroup) {
                 toolGroup = ToolGroupManager.createToolGroup(TOOL_GROUP_ID);
                 toolGroup.addTool(PanTool.toolName);
-                toolGroup.addTool(ZoomTool.toolName);
+                // zoomToCenter: true - confirmed from the real installed
+                // ZoomTool source that this defaults to false, which anchors
+                // zoom toward wherever the drag STARTED rather than the
+                // viewport's true center - the likely cause of zoom appearing
+                // to drift/misbehave. Forcing true anchors zoom consistently
+                // around center.
+                toolGroup.addTool(ZoomTool.toolName, { configuration: { zoomToCenter: true } });
                 toolGroup.setToolActive(PanTool.toolName, {
                     bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
                 });
@@ -154,6 +166,26 @@ export default function DicomViewerPage({
                 });
             }
             toolGroup.addViewport(VIEWPORT_ID, RENDERING_ENGINE_ID);
+
+            // Wheel-based slice navigation. NOT implemented via
+            // StackScrollTool: this viewer re-fetches a single-image
+            // "stack" from the backend on every slice change, driven by
+            // React state (sliceIndex), not by Cornerstone's own native
+            // multi-image stack/volume concept - StackScrollTool scrolls
+            // through a Cornerstone-tracked stack index, which would have
+            // no effect here since the viewport's stack always contains
+            // exactly one image. A direct wheel listener updating React
+            // state is the correct mechanism for this architecture.
+            const handleWheel = (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 1 : -1;
+                setSliceIndex((i) => {
+                    const max = Math.max(totalSlicesRef.current - 1, 0);
+                    return Math.min(Math.max(i + delta, 0), max);
+                });
+            };
+            elementRef.current.addEventListener("wheel", handleWheel, { passive: false });
+            wheelHandlerRef.current = handleWheel;
         } catch (err) {
             console.error("Cornerstone viewer setup failed:", err);
             setSetupError(
@@ -162,6 +194,10 @@ export default function DicomViewerPage({
         }
 
         return () => {
+            if (wheelHandlerRef.current && elementRef.current) {
+                elementRef.current.removeEventListener("wheel", wheelHandlerRef.current);
+                wheelHandlerRef.current = null;
+            }
             try {
                 const toolGroup = ToolGroupManager.getToolGroup(TOOL_GROUP_ID);
                 toolGroup?.removeViewports(RENDERING_ENGINE_ID, VIEWPORT_ID);
@@ -240,13 +276,20 @@ export default function DicomViewerPage({
         setWw(p.ww);
     }
 
+    // Uses Cornerstone's own public getZoom()/setZoom() API (confirmed
+    // real from the installed source: Viewport.js's getZoom() returns
+    // initialParallelScale/currentParallelScale, so a LARGER returned
+    // value means MORE zoomed in) rather than manually reading/writing
+    // camera.parallelScale directly - delegating to Cornerstone's own
+    // tested implementation rather than reimplementing the same math by
+    // hand, which is the safer fix regardless of the exact mechanism
+    // behind the previously reported Zoom Out behavior.
     function handleZoom(direction) {
         const viewport = viewportRef.current;
         if (!viewport) return;
-        const camera = viewport.getCamera();
-        const currentScale = camera.parallelScale || 1;
-        const factor = direction === "in" ? 0.85 : 1 / 0.85;
-        viewport.setCamera({ parallelScale: currentScale * factor });
+        const currentZoom = viewport.getZoom();
+        const factor = direction === "in" ? 1.15 : 1 / 1.15;
+        viewport.setZoom(currentZoom * factor);
         viewport.render();
     }
 
@@ -318,6 +361,15 @@ export default function DicomViewerPage({
                 title="CT DICOM Viewer"
                 subtitle="Adjust the slice and window, then explicitly analyze"
                 onBack={onBack}
+                actions={
+                    <Button
+                        variant="primary"
+                        disabled={!seriesId}
+                        onClick={onOpenVolumeViewer}
+                    >
+                        Open 3D Volume Viewer
+                    </Button>
+                }
             />
 
             <div className="card padded dicom-viewer-card">
@@ -442,15 +494,6 @@ export default function DicomViewerPage({
                         </div>
                     </div>
 
-                    <div className="dicom-tool-row" style={{ marginTop: 12 }}>
-                        <Button
-                            variant="secondary"
-                            disabled={!seriesId}
-                            onClick={onOpenVolumeViewer}
-                        >
-                            Open 3D Volume Viewer
-                        </Button>
-                    </div>
                 </div>
             </div>
 

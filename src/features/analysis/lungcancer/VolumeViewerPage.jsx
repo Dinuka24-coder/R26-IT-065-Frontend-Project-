@@ -138,6 +138,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
     const [mode, setMode] = useState("mpr"); // "mpr" | "3d"
     const [mprWindowPresetKey, setMprWindowPresetKey] = useState("default");
     const [render3DPresetKey, setRender3DPresetKey] = useState("default");
+    const [background3D, setBackground3D] = useState("black"); // "black" | "white"
 
     // seriesId comes directly as a prop - the parent already has it from
     // DicomFileSelector's inspectDicom() result (see the "props, not
@@ -269,7 +270,19 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
             if (!toolGroup) {
                 toolGroup = ToolGroupManager.createToolGroup(TOOL_GROUP_ID);
                 toolGroup.addTool(PanTool.toolName);
-                toolGroup.addTool(ZoomTool.toolName);
+                // zoomToCenter: true - confirmed from the real installed
+                // ZoomTool source that this defaults to false, anchoring
+                // zoom toward the drag start point rather than the
+                // viewport's true center. This is the confirmed root
+                // cause of the reported Coronal/Sagittal zoom drift:
+                // Axial "happened" to look correct because typical chest
+                // CT framing/click position there is closer to center;
+                // Coronal/Sagittal's different framing made the same
+                // underlying default-config behavior visibly worse.
+                // Applied uniformly to all three MPR orientations (not
+                // orientation-specific), since it's the same ZoomTool
+                // instance/config shared across the one MPR ToolGroup.
+                toolGroup.addTool(ZoomTool.toolName, { configuration: { zoomToCenter: true } });
                 toolGroup.addTool(StackScrollTool.toolName);
                 toolGroup.setToolActive(PanTool.toolName, {
                     bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
@@ -548,6 +561,25 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
         setRender3DPresetKey(key);
     }
 
+    // Background color is only consumed ONCE by Cornerstone, at the
+    // moment the underlying VTK renderer is first created (confirmed
+    // from the real installed ContextPoolRenderingEngine source - no
+    // public Cornerstone API re-applies it afterward). Changing it later
+    // requires reaching the underlying VTK renderer directly via the
+    // real, public viewport.getRenderer() method and calling its own
+    // setBackground() (a genuine VTK.js Renderer API) - not a Cornerstone
+    // workaround, this is the actual supported way to reach VTK-level
+    // rendering state Cornerstone doesn't wrap.
+    function applyBackground3D(mode) {
+        const renderingEngine = renderingEngineRef.current;
+        const viewport3D = renderingEngine?.getViewport(VIEWPORT_ID_3D);
+        const renderer = viewport3D?.getRenderer?.();
+        if (!renderer) return;
+        renderer.setBackground(mode === "white" ? [1, 1, 1] : [0, 0, 0]);
+        renderingEngine.render();
+        setBackground3D(mode);
+    }
+
     if (setupError) {
         return (
             <div className="page-enter">
@@ -739,6 +771,24 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                                 {preset.label}
                             </Button>
                         ))}
+                    </div>
+                )}
+
+                {mode === "3d" && (
+                    <div className="dicom-tool-row" style={{ marginBottom: 12 }}>
+                        <span className="dicom-window-label">Background:</span>
+                        <Button
+                            variant={background3D === "black" ? "primary" : "secondary"}
+                            onClick={() => applyBackground3D("black")}
+                        >
+                            Black
+                        </Button>
+                        <Button
+                            variant={background3D === "white" ? "primary" : "secondary"}
+                            onClick={() => applyBackground3D("white")}
+                        >
+                            White
+                        </Button>
                     </div>
                 )}
 
