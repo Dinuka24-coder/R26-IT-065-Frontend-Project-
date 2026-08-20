@@ -1,18 +1,23 @@
 import "./lungcancer.css";
 import { useState, lazy, Suspense } from "react";
-import { FileImage, Layers3, AlertTriangle, Loader, CheckCircle } from "lucide-react";
+import { FileImage, Layers3, AlertTriangle, Loader } from "lucide-react";
 import { predictLungCancer } from "../../../api/component4Api";
-import { BASE_URL } from "../../../api/client";
 import { useTheme } from "../../../context/ThemeContext";
 import AnalysisLayout from "../shared/AnalysisLayout";
 import PatientSelector from "../shared/PatientSelector";
 import ScanUploader from "../shared/ScanUploader";
-import ResultCard from "../shared/ResultCard";
 import PageHeader from "../../../components/ui/PageHeader";
 import Button from "../../../components/ui/Button";
 import Card from "../../../components/ui/Card";
-import SectionLabel from "../../../components/ui/SectionLabel";
 import DicomFileSelector from "./DicomFileSelector";
+// Component-4-specific result presentation (Prediction Information
+// panel: prediction, confidence, class probabilities, View Grad-CAM
+// toggle) - deliberately SEPARATE from the shared ResultCard.jsx used
+// by Components 1-3, which is NOT imported or modified here at all.
+// GradCamImage (the real fix for heatmap_url being a relative path,
+// not base64) now lives inside LungResultCard.jsx, toggled via its own
+// "View Grad-CAM" button rather than always rendered.
+import LungResultCard from "./LungResultCard";
 // Lazy-loaded: these import @cornerstonejs/core, which transitively
 // requires @kitware/vtk.js -> xmlbuilder2 -> Node's events module -
 // evaluating that chain eagerly (via a static import) was crashing the
@@ -28,56 +33,6 @@ const VolumeViewerPage = lazy(() => import("./VolumeViewerPage"));
 // Small loading state shown while the lazy-loaded DICOM viewer chunk
 // (and its Cornerstone dependency tree) is being fetched/evaluated -
 // only reached after the user explicitly opens the DICOM CT Viewer.
-// Real backend confirmation (app/ml_models/component4/gradcam.py):
-// generate_gradcam() returns f"/static/gradcam/component4/{filename}" -
-// a relative URL PATH, never base64. The shared HeatmapCard.jsx
-// hardcodes `data:image/png;base64,${heatmap}`, which is genuinely
-// incompatible with a path - passing either a relative or absolute URL
-// through it produces an invalid data URI the browser cannot render.
-// Since HeatmapCard is a shared component (do not modify), this local,
-// Component-4-scoped replacement reuses the SAME Card/SectionLabel
-// primitives for visual consistency, but resolves the real path against
-// the backend's actual origin and renders it as a normal <img src>.
-// BASE_URL (from client.js) includes "/api/v1" - static files are
-// served from the backend root, so that suffix is stripped here.
-const API_ROOT = BASE_URL.replace(/\/api\/v1\/?$/, "");
-
-function resolveHeatmapSrc(path) {
-    if (!path) return null;
-    if (/^https?:\/\//i.test(path)) return path;
-    return `${API_ROOT}${path.startsWith("/") ? "" : "/"}${path}`;
-}
-
-function GradCamImage({ path, title = "Grad-CAM Heatmap", emptyText = "No abnormality detected in this scan." }) {
-    const { t } = useTheme();
-    const src = resolveHeatmapSrc(path);
-
-    if (!src) {
-        return (
-            <Card style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                <CheckCircle size={22} color="#22c55e" />
-                <div>
-                    <div style={{ fontWeight: 600 }}>No region highlighting required</div>
-                    <div style={{ fontSize: 13, color: t.dim }}>{emptyText}</div>
-                </div>
-            </Card>
-        );
-    }
-
-    return (
-        <Card>
-            <SectionLabel>{title}</SectionLabel>
-            <img src={src} alt={title} style={{ width: "100%", borderRadius: 10, display: "block" }} />
-            <div style={{ marginTop: 10, fontSize: 12, color: t.dim, textAlign: "center" }}>
-                <span style={{ color: "#0000ff" }}>■</span> Low &nbsp;
-                <span style={{ color: "#00ff00" }}>■</span> Medium &nbsp;
-                <span style={{ color: "#ffff00" }}>■</span> High &nbsp;
-                <span style={{ color: "#ff0000" }}>■</span> Very High
-            </div>
-        </Card>
-    );
-}
-
 function DicomLoadingFallback({ t }) {
     return (
         <div style={{ textAlign: "center", padding: 48, color: t.dim }}>
@@ -96,7 +51,7 @@ function DicomLoadingFallback({ t }) {
 // Internally offers two sub-flows under the SAME page-key
 // ("analysis-lungcancer", already registered in App.jsx - unmodified):
 //   "png"   - existing PNG/JPG prediction template, using the shared
-//             ScanUploader/ResultCard/GradCamImage/AnalysisLayout exactly
+//             ScanUploader/LungResultCard/AnalysisLayout exactly
 //             as Pneumothorax already does.
 //   "dicom" - Component-4-specific DICOM CT flow, with its own internal
 //             sub-navigation (dicomSubView) rather than a separate
@@ -109,7 +64,7 @@ function DicomLoadingFallback({ t }) {
 //                          "Open 3D Volume Viewer" button)
 //               "result" - DICOM slice analysis result (from
 //                          DicomViewerPage's "Analyze Current Slice"),
-//                          shown inline via the SAME ResultCard/GradCamImage
+//                          shown inline via the SAME LungResultCard
 //                          the PNG flow uses - no separate results page
 //                          exists in this architecture.
 export default function LungCancerAnalysis({ navigate }) {
@@ -198,8 +153,8 @@ export default function LungCancerAnalysis({ navigate }) {
             );
         }
 
-        // --- DICOM slice analysis result - reuses the SAME ResultCard/
-        // GradCamImage the PNG flow uses, with the SAME isPositiveResult()
+        // --- DICOM slice analysis result - reuses the SAME LungResultCard
+        // the PNG flow uses, with the SAME isPositiveResult()
         // classification, for consistency between both sub-flows. --------------
         if (dicomSubView === "result" && dicomAnalysisResult) {
             const dResult = dicomAnalysisResult.result;
@@ -211,20 +166,18 @@ export default function LungCancerAnalysis({ navigate }) {
                         subtitle={dicomAnalysisResult.fileName}
                         onBack={() => setDicomSubView("2d")}
                     />
-                    <ResultCard
+                    {/* DICOM /analyze response was deliberately NOT changed
+              this step - it has no class_probabilities field.
+              LungResultCard handles this gracefully (section hidden,
+              never fabricated) since classProbabilities is optional. */}
+                    <LungResultCard
                         prediction={dResult.prediction}
                         confidence={dResult.confidence}
                         isPositive={dIsPos}
                         urgency={dResult.urgency}
+                        classProbabilities={dResult.class_probabilities}
+                        heatmapPath={dResult.heatmap_url}
                         extras={dResult && dIsPos ? [] : []}
-                    />
-                    {/* Confirmed from the real backend source (gradcam.py):
-              heatmap_url is a relative path, not base64 - see
-              GradCamImage above for why HeatmapCard can't be used here. */}
-                    <GradCamImage
-                        path={dResult.heatmap_url}
-                        title="Grad-CAM Heatmap"
-                        emptyText="No malignancy detected in this slice."
                     />
                     <Button variant="secondary" onClick={() => setDicomSubView("2d")} style={{ marginTop: 16 }}>
                         Back to Viewer
@@ -283,15 +236,19 @@ export default function LungCancerAnalysis({ navigate }) {
                 navigate={navigate}
                 onRun={run} canRun={Boolean(patientId && file)} loading={loading} error={error}
                 results={result && (
-                    <>
-                        <ResultCard prediction={result.prediction} confidence={result.confidence}
-                                    isPositive={isPos} urgency={result.urgency} extras={extras} />
-                        {/* Confirmed from the real backend source (gradcam.py):
-                heatmap_url is a relative path, not base64 - the earlier
-                open question is now resolved. See GradCamImage above. */}
-                        <GradCamImage path={result.heatmap_url} title="Grad-CAM Heatmap"
-                                      emptyText="No malignancy detected in this scan." />
-                    </>
+                    // Phase 1 Step 1: real class_probabilities now flows
+                    // straight from the backend (predict()'s already-computed
+                    // raw_scores, exposed unchanged by run_prediction()).
+                    <LungResultCard
+                        prediction={result.prediction}
+                        confidence={result.confidence}
+                        isPositive={isPos}
+                        urgency={result.urgency}
+                        classProbabilities={result.class_probabilities}
+                        inputCheck={result.input_check}
+                        heatmapPath={result.heatmap_url}
+                        extras={extras}
+                    />
                 )}
             >
                 <PatientSelector value={patientId} onChange={setPatientId} navigate={navigate} />
