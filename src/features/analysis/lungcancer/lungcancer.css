@@ -1,0 +1,240 @@
+/* ==========================================================================
+   Component 4 (Lung Cancer) - DICOM Viewer CSS, scoped entirely to this
+   feature. Adapted from the old R26-IT-065-Frontend's dicom-* class block
+   (styles.css) and the 5 generic classes (card/padded/error-box/
+   page-enter/spin) also used by VolumeViewerPage.jsx/DicomViewerPage.jsx.
+
+   IMPORTANT, disclosed limitation: this repository's real theme system
+   (src/context/ThemeContext.jsx) is JS-based (useTheme() returns a token
+   object - t.bg, t.card, t.border, t.text, t.dim), not CSS-variable-based.
+   Plain CSS classes like these cannot reactively read that JS object.
+
+   The old CSS was hardcoded for LIGHT MODE ONLY (#0F172A text, #F8FAFC/
+   white backgrounds) - copying it verbatim would render badly in this
+   app's DARK mode, which is the actual default (confirmed from
+   ThemeContext.jsx: dark unless "pulmo_theme" is explicitly "light").
+
+   Rather than silently shipping broken dark-mode contrast, colors below
+   use semi-transparent white/black overlays instead of the old hardcoded
+   hex values - reasonably readable in BOTH themes (optimized for dark,
+   the default), though not perfectly matched to either theme's exact
+   palette. Full integration would mean passing t.* values as CSS custom
+   properties from the component files - out of scope for a CSS-only
+   stage; flagging as a real, disclosed follow-up rather than pretending
+   this is pixel-perfect theme integration.
+
+   The one color that IS safe to hardcode exactly: the accent blue
+   (#2563eb) - confirmed identical in both THEMES.dark.accent and
+   THEMES.light.accent in the real ThemeContext.jsx.
+   ========================================================================== */
+
+/* --- Generic classes also used by VolumeViewerPage.jsx/DicomViewerPage.jsx,
+   not already provided by this repository's near-empty styles.css --------- */
+
+.page-enter {
+    animation: pageIn 0.22s ease forwards;
+}
+
+@keyframes pageIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0); }
+    to { transform: rotate(360deg); }
+}
+
+.card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.padded {
+    padding: 20px;
+}
+
+.error-box {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 9px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #f87171;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* --- Component 4 DICOM viewer ------------------------------------------- */
+
+.dicom-viewer-card {
+    padding: 20px;
+}
+
+.dicom-viewport-wrap {
+    position: relative;
+    width: 100%;
+    height: 480px;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.dicom-viewport {
+    width: 100%;
+    height: 100%;
+}
+
+.dicom-viewport-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    gap: 4px;
+}
+
+.dicom-controls {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dicom-slice-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.dicom-slice-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    min-width: 110px;
+}
+
+.dicom-slice-slider {
+    flex: 1;
+    min-width: 160px;
+    accent-color: #2563eb;
+}
+
+.dicom-slice-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.dicom-tool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dicom-tool-hint {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: 4px;
+}
+
+.dicom-window-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dicom-window-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    margin-right: 4px;
+}
+
+.dicom-manual-window {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: 8px;
+}
+
+.dicom-manual-window label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.dicom-manual-window input[type="number"] {
+    width: 72px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.9);
+    border-radius: 7px;
+    font-size: 13px;
+}
+
+.dicom-file-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+}
+
+/* WC/WW window sliders */
+
+.dicom-window-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dicom-window-sliders {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9px;
+}
+
+.dicom-window-slider-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 56px;
+    align-items: center;
+    gap: 10px;
+}
+
+.dicom-window-slider-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.dicom-window-slider {
+    width: 100%;
+    accent-color: #2563eb;
+}
+
+.dicom-window-slider-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
