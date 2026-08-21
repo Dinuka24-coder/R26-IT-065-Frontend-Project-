@@ -3,6 +3,7 @@ export const COMPONENTS = [
   { id: "pneumonia",    label: "Pneumonia",    scan: "X-ray",   accent: "#3b82f6", route: "analysis-pneumonia" },
   { id: "tuberculosis", label: "Tuberculosis", scan: "X-ray",   accent: "#f59e0b", route: "analysis-tuberculosis" },
   { id: "lungcancer",   label: "Lung Cancer",  scan: "CT Scan", accent: "#8b5cf6", route: "analysis-lungcancer" },
+  { id: "full",         label: "Full Screening", scan: "X-ray · all engines", accent: "#06b6d4", route: "analysis-full" },
 ];
 
 export const URGENCY_COLORS = {
