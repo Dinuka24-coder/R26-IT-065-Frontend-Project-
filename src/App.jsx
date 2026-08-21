@@ -22,6 +22,7 @@ import LungCancerAnalysis from "./features/analysis/lungcancer/LungCancerAnalysi
 import PredictionHistoryPage from "./features/history/PredictionHistoryPage";
 import ReportsPage from "./features/reports/ReportsPage";
 import SettingsPage from "./features/settings/SettingsPage";
+import FullScreeningPage from "./features/analysis/screening/FullScreeningPage";
 
 function Shell() {
   const { user, isAdmin, updateUser } = useAuth();
@@ -67,6 +68,7 @@ function Shell() {
     "history":               <PredictionHistoryPage />,
     "reports":               <ReportsPage />,
     "settings":              adminOnly(<SettingsPage />),
+      "analysis-full": <FullScreeningPage navigate={navigate} />,
   };
 
   return (
