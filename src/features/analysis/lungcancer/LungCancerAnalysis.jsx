@@ -246,6 +246,8 @@ export default function LungCancerAnalysis({ navigate }) {
                         urgency={result.urgency}
                         classProbabilities={result.class_probabilities}
                         inputCheck={result.input_check}
+                        originalImageSrc={preview}
+                        heatmapOnlyPath={result.heatmap_only_url}
                         heatmapPath={result.heatmap_url}
                         extras={extras}
                     />
