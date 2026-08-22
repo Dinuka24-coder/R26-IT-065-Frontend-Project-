@@ -81,6 +81,101 @@ function GradCamImage({ path, title = "Grad-CAM Heatmap", emptyText = "No abnorm
     );
 }
 
+// Phase 3: Original / Heatmap / Overlay explorer, with a real,
+// continuously-adjustable opacity slider (not just three fixed
+// images). Only usable when BOTH the original image (already
+// available in the frontend for PNG uploads - see preview state in
+// LungCancerAnalysis.jsx, no backend round-trip needed) AND a separate
+// heatmap-only image (Phase 3's new, opt-in backend addition) are
+// provided. DICOM results have neither readily available, so this
+// component is not used there - GradCamImage (unchanged, overlay-only)
+// remains the DICOM Grad-CAM view.
+//
+// The opacity slider layers the RAW heatmap over the original via CSS
+// opacity, giving true continuous control - the backend's pre-baked
+// overlay has its 60/40 blend fixed at generation time and can't be
+// adjusted after the fact. Default opacity (40%) matches that existing
+// backend blend ratio, so the initial "Overlay" view looks the same as
+// the fixed image always has.
+//
+// Honest limitation, not hidden: the original (arbitrary user
+// resolution) and the heatmap (fixed 224x224) are both stretched to
+// fill the same box for layering - this is a reasonable visual
+// approximation, not pixel-exact registration, especially for
+// originals with a very different aspect ratio than square.
+function GradCamExplorer({ originalImageSrc, heatmapOnlyPath, title = "Grad-CAM Explanation" }) {
+    const { t } = useTheme();
+    const [activeTab, setActiveTab] = useState("overlay"); // "original" | "heatmap" | "overlay"
+    const [opacity, setOpacity] = useState(0.4);
+
+    const heatmapSrc = resolveHeatmapSrc(heatmapOnlyPath);
+
+    if (!originalImageSrc || !heatmapSrc) {
+        return null;
+    }
+
+    const heatmapOpacity = activeTab === "original" ? 0 : activeTab === "heatmap" ? 1 : opacity;
+
+    return (
+        <Card style={{ marginTop: 12 }}>
+            <SectionLabel>{title}</SectionLabel>
+            <div style={{ fontSize: 12, color: t.dim, marginBottom: 10 }}>
+                Grad-CAM highlights image regions that contributed to the model's
+                classification decision. It is a classification explanation, not a
+                segmentation or lesion-detection result.
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <Button variant={activeTab === "original" ? "primary" : "secondary"} onClick={() => setActiveTab("original")}>
+                    Original
+                </Button>
+                <Button variant={activeTab === "heatmap" ? "primary" : "secondary"} onClick={() => setActiveTab("heatmap")}>
+                    Heatmap
+                </Button>
+                <Button variant={activeTab === "overlay" ? "primary" : "secondary"} onClick={() => setActiveTab("overlay")}>
+                    Overlay
+                </Button>
+            </div>
+
+            <div style={{ position: "relative", width: "100%", borderRadius: 10, overflow: "hidden" }}>
+                <img src={originalImageSrc} alt="Original" style={{ width: "100%", display: "block" }} />
+                <img
+                    src={heatmapSrc}
+                    alt="Grad-CAM heatmap"
+                    style={{
+                        position: "absolute", inset: 0, width: "100%", height: "100%",
+                        objectFit: "fill", opacity: heatmapOpacity,
+                    }}
+                />
+            </div>
+
+            {activeTab === "overlay" && (
+                <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, color: t.dim, marginBottom: 4 }}>
+                        Grad-CAM Opacity — {Math.round(opacity * 100)}%
+                    </div>
+                    <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={opacity}
+                        onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                        style={{ width: "100%" }}
+                    />
+                </div>
+            )}
+
+            <div style={{ marginTop: 10, fontSize: 12, color: t.dim, textAlign: "center" }}>
+                <span style={{ color: "#0000ff" }}>■</span> Low &nbsp;
+                <span style={{ color: "#00ff00" }}>■</span> Medium &nbsp;
+                <span style={{ color: "#ffff00" }}>■</span> High &nbsp;
+                <span style={{ color: "#ff0000" }}>■</span> Very High
+            </div>
+        </Card>
+    );
+}
+
 function ProbabilityRow({ t, label, value, isTop }) {
     const pct = Math.round(value * 1000) / 10; // real value, one decimal
     return (
@@ -153,6 +248,8 @@ export default function LungResultCard({
                                            classProbabilities, // optional - see note above
                                            inputCheck,          // optional - Phase 2, see note below
                                            heatmapPath,        // optional - passed straight to GradCamImage
+                                           originalImageSrc,   // optional - Phase 3, PNG only (see GradCamExplorer)
+                                           heatmapOnlyPath,     // optional - Phase 3, PNG only
                                            extras = [],
                                        }) {
     const { t } = useTheme();
@@ -218,7 +315,11 @@ export default function LungResultCard({
                 <Eye size={14} /> {showGradCam ? "Hide Grad-CAM" : "View Grad-CAM"}
             </Button>
 
-            {showGradCam && <GradCamImage path={heatmapPath} />}
+            {showGradCam && (
+                originalImageSrc && heatmapOnlyPath
+                    ? <GradCamExplorer originalImageSrc={originalImageSrc} heatmapOnlyPath={heatmapOnlyPath} />
+                    : <GradCamImage path={heatmapPath} />
+            )}
         </Card>
     );
 }
