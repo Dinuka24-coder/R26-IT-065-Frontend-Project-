@@ -1,7 +1,7 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
 function getToken() {
-  return localStorage.getItem("pulmo_token");
+    return sessionStorage.getItem("pulmo_token");
 }
 
 async function handle(res) {

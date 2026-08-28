@@ -1,6 +1,6 @@
 import { api } from "./client";
 
-// Tuberculosis — TODO: verify endpoint path with your backend
+// Tuberculosis — CONNECTED
 export function predictTuberculosis(patientId, file) {
   const formData = new FormData();
   formData.append("patient_id", patientId);
