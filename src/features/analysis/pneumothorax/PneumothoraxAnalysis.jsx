@@ -1,12 +1,37 @@
 import { useState } from "react";
+import { ScanLine, CheckCircle } from "lucide-react";
+import { useTheme } from "../../../context/ThemeContext";
 import { predictPneumothorax } from "../../../api/component1Api";
-import AnalysisLayout from "../shared/AnalysisLayout";
+import PageHeader from "../../../components/ui/PageHeader";
+import Card from "../../../components/ui/Card";
+import Button from "../../../components/ui/Button";
 import PatientSelector from "../shared/PatientSelector";
 import ScanUploader from "../shared/ScanUploader";
-import ResultCard from "../shared/ResultCard";
-import HeatmapCard from "../shared/HeatmapCard";
+import HeatmapViewer from "../shared/HeatmapViewer";
+import DiagnosticConclusion from "../shared/DiagnosticConclusion";
+import BiomarkersCard from "../shared/BiomarkersCard";
+import ClinicalGuidance from "../shared/ClinicalGuidance";
+
+const GUIDANCE = {
+  High: [
+    "Urgent physician assessment required — check oxygenation, respiratory rate, and haemodynamic stability.",
+    "Evaluate for immediate needle decompression or chest tube placement per institutional protocol.",
+    "Obtain confirmatory upright chest radiograph or CT before intervention where time allows.",
+  ],
+  Moderate: [
+    "Physician review recommended within the current shift.",
+    "Consider serial imaging to assess for progression.",
+    "Monitor oxygen saturation and symptom development.",
+  ],
+  Low: [
+    "Routine radiologist review recommended.",
+    "Correlate with clinical presentation and patient history.",
+    "Repeat imaging if symptoms develop or worsen.",
+  ],
+};
 
 export default function PneumothoraxAnalysis({ navigate }) {
+  const { t } = useTheme();
   const [patientId, setPatientId] = useState("");
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -26,38 +51,122 @@ export default function PneumothoraxAnalysis({ navigate }) {
 
   async function run() {
     setError(""); setLoading(true); setResult(null);
-    try { setResult(await predictPneumothorax(patientId, file)); }
-    catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+    try {
+      setResult(await predictPneumothorax(patientId, file));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const isPos = Boolean(result?.prediction?.includes("Detected"));
+  const isPos   = Boolean(result?.prediction?.includes("Detected"));
+  const urgency = result?.urgency || "Low";
 
-  const extras = result && isPos ? [
-    ...(result.affected_lung_pct > 0 ? [{ label: "Affected Lung Area", value: `${result.affected_lung_pct}%` }] : []),
-    { label: "Pleural Separation", value: result.pleural_separation ? "Detected" : "Not detected" },
-    ...(result.segmented_area_pct > 0 ? [{ label: "Segmented Region", value: `${result.segmented_area_pct}%` }] : []),
+  const metrics = result && isPos ? [
+    ...(result.affected_lung_pct > 0 ? [{
+      label: "Affected Lung Area", value: `${result.affected_lung_pct}%`,
+      sub: "of total lung field",
+    }] : []),
+    ...(result.boundary_length_pct > 0 ? [{
+      label: "Pleural Boundary", value: `${result.boundary_length_pct}%`,
+      sub: "boundary extent", color: "#f59e0b",
+    }] : []),
+    ...(result.segmented_area_pct > 0 ? [{
+      label: "Segmented Region", value: `${result.segmented_area_pct}%`,
+      sub: "U-Net enhancement", color: "#8b5cf6",
+    }] : []),
+    {
+      label: "Pleural Separation",
+      value: result.pleural_separation ? "Present" : "Absent",
+      sub: "boundary detection",
+      color: result.pleural_separation ? "#ef4444" : "#22c55e",
+    },
   ] : [];
 
+  const synthesis = result && isPos
+      ? `Boundary-aware attention localizes a pleural line affecting ${result.affected_lung_pct ?? "—"}% of the lung field. ` +
+      `Cyan contour marks the constrained pleural boundary; the highlighted negative space indicates air beyond it.`
+      : null;
+
   return (
-    <AnalysisLayout
-      title="Pneumothorax Analysis"
-      subtitle="X-ray · EfficientNetB0 + Boundary-Aware Grad-CAM"
-      navigate={navigate}
-      onRun={run} canRun={Boolean(patientId && file)} loading={loading} error={error}
-      results={result && (
-        <>
-          <ResultCard prediction={result.prediction} confidence={result.confidence}
-            isPositive={isPos} urgency={result.urgency} extras={extras} />
-          <HeatmapCard heatmap={result.heatmap_base64}
-            title="Boundary-Aware Grad-CAM"
-            caption="Cyan outline marks the lung-constrained pleural boundary"
-            emptyText="No pneumothorax detected in this scan." />
-        </>
-      )}
-    >
-      <PatientSelector value={patientId} onChange={setPatientId} navigate={navigate} />
-      <ScanUploader preview={preview} onFile={onFile} onClear={clearFile} />
-    </AnalysisLayout>
+      <div>
+        <PageHeader
+            title="Pneumothorax Analysis"
+            subtitle="Chest Radiograph · EfficientNetB0 + Boundary-Aware Grad-CAM"
+            onBack={() => navigate("analysis")}
+        />
+
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: result ? "minmax(320px, 1fr) minmax(340px, 1.15fr)" : "1fr",
+          gap: 18, alignItems: "start", maxWidth: result ? "none" : 660,
+        }}>
+          {/* ── LEFT: input + scan ─────────────────────────────── */}
+          <Card>
+            <PatientSelector value={patientId} onChange={setPatientId} navigate={navigate} />
+
+            {result?.heatmap_base64 ? (
+                <HeatmapViewer
+                    originalPreview={preview}
+                    heatmap={result.heatmap_base64}
+                    modelName="EfficientNetB0"
+                    onClear={clearFile}
+                />
+            ) : (
+                <ScanUploader preview={preview} onFile={onFile} onClear={clearFile} />
+            )}
+
+            {error && <div style={{ marginTop: 14, color: "#ef4444", fontSize: 13 }}>{error}</div>}
+
+            <div style={{ marginTop: 18 }}>
+              <Button onClick={run} disabled={!patientId || !file || loading} full>
+                <ScanLine size={15} /> {loading ? "Analyzing…" : "Run AI Analysis"}
+              </Button>
+            </div>
+          </Card>
+
+          {/* ── RIGHT: results ─────────────────────────────────── */}
+          {result && (
+              <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+                <DiagnosticConclusion
+                    verdict={isPos ? "PNEUMOTHORAX DETECTED" : "NO PNEUMOTHORAX"}
+                    isPositive={isPos}
+                    confidence={result.confidence}
+                    summary={isPos
+                        ? `Pleural line pattern detected with ${result.confidence}% statistical certainty.`
+                        : "No pleural separation pattern identified in this radiograph."}
+                    severity={isPos ? urgency : null}
+                    severityNote={isPos ? {
+                      High: "Large pneumothorax — risk of tension physiology",
+                      Moderate: "Moderate collapse — close monitoring indicated",
+                      Low: "Small pneumothorax — conservative management may apply",
+                    }[urgency] : null}
+                />
+
+                {isPos && <BiomarkersCard metrics={metrics} synthesis={synthesis} />}
+
+                {isPos ? (
+                    <ClinicalGuidance
+                        steps={GUIDANCE[urgency]}
+                        alert={urgency === "High"
+                            ? "Urgent clinical review required — escalate if patient is unstable."
+                            : null}
+                    />
+                ) : (
+                    <Card style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      <CheckCircle size={22} color="#22c55e" />
+                      <div>
+                        <div style={{ fontWeight: 600 }}>No region highlighting required</div>
+                        <div style={{ fontSize: 13, color: t.dim }}>
+                          No pneumothorax detected — attention mapping was not generated.
+                        </div>
+                      </div>
+                    </Card>
+                )}
+              </div>
+          )}
+        </div>
+      </div>
   );
 }
