@@ -1,31 +1,50 @@
 import { useState } from "react";
-import { Eye, EyeOff, X } from "lucide-react";
+import { EyeOff, Layers, Flame, X } from "lucide-react";
 import { useTheme } from "../../../context/ThemeContext";
 
 export default function HeatmapViewer({
-                                          originalPreview, heatmap, modelName, onClear, legend = true,
+                                          originalPreview, heatmap, standardHeatmap, modelName, onClear, legend = true,
                                       }) {
     const { t } = useTheme();
-    const [showHeat, setShowHeat] = useState(true);
-    const src = showHeat && heatmap ? `data:image/png;base64,${heatmap}` : originalPreview;
+    const [mode, setMode] = useState("boundary");   // boundary | standard | original
+
+    const views = [
+        { id: "boundary", label: "Boundary-Aware", icon: Layers,  available: Boolean(heatmap) },
+        { id: "standard", label: "Standard",       icon: Flame,   available: Boolean(standardHeatmap) },
+        { id: "original", label: "Original",       icon: EyeOff,  available: Boolean(originalPreview) },
+    ].filter(v => v.available);
+
+    const src = mode === "boundary" ? `data:image/png;base64,${heatmap}`
+        : mode === "standard" ? `data:image/png;base64,${standardHeatmap}`
+            : originalPreview;
+
+    const showLegend = legend && mode !== "original";
 
     return (
         <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", background: "#000" }}>
             <img src={src} alt="Scan" style={{ width: "100%", display: "block" }} />
 
-            {heatmap && (
-                <button onClick={() => setShowHeat((s) => !s)}
-                        style={{
-                            position: "absolute", top: 12, left: 12,
-                            display: "flex", alignItems: "center", gap: 7,
-                            padding: "7px 12px", borderRadius: 8, border: "none",
-                            background: showHeat ? t.accent : "rgba(0,0,0,0.65)",
-                            color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                            backdropFilter: "blur(4px)",
-                        }}>
-                    {showHeat ? <Eye size={14} /> : <EyeOff size={14} />}
-                    Grad-CAM Heatmap: {showHeat ? "ON" : "OFF"}
-                </button>
+            {/* View switcher */}
+            {views.length > 1 && (
+                <div style={{
+                    position: "absolute", top: 12, left: 12,
+                    display: "flex", gap: 4, padding: 4, borderRadius: 10,
+                    background: "rgba(0,0,0,0.62)", backdropFilter: "blur(6px)",
+                }}>
+                    {views.map((v) => (
+                        <button key={v.id} onClick={() => setMode(v.id)}
+                                style={{
+                                    display: "flex", alignItems: "center", gap: 6,
+                                    padding: "6px 11px", borderRadius: 7, border: "none",
+                                    background: mode === v.id ? t.accent : "transparent",
+                                    color: mode === v.id ? "#fff" : "#cbd5e1",
+                                    fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                                    transition: "background 0.15s",
+                                }}>
+                            <v.icon size={13} /> {v.label}
+                        </button>
+                    ))}
+                </div>
             )}
 
             {onClear && (
@@ -38,6 +57,7 @@ export default function HeatmapViewer({
                     <X size={14} />
                 </button>
             )}
+
 
             {modelName && (
                 <div style={{
@@ -52,7 +72,7 @@ export default function HeatmapViewer({
                 </div>
             )}
 
-            {legend && showHeat && heatmap && (
+            {showLegend && (
                 <div style={{
                     position: "absolute", bottom: 12, right: 12,
                     display: "flex", alignItems: "center", gap: 10,
@@ -63,10 +83,17 @@ export default function HeatmapViewer({
                     {[["#2563eb", "Low"], ["#22c55e", "Med"], ["#f59e0b", "High"], ["#ef4444", "Max"]]
                         .map(([c, l]) => (
                             <span key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
+                                <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
                                 {l}
-              </span>
+                            </span>
                         ))}
+                    {mode === "boundary" && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 4,
+                            paddingLeft: 8, borderLeft: "1px solid rgba(255,255,255,0.2)" }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: "#00ffff" }} />
+                            Boundary
+                        </span>
+                    )}
                 </div>
             )}
         </div>

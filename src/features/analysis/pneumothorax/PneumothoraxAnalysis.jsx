@@ -30,6 +30,12 @@ const GUIDANCE = {
   ],
 };
 
+const SEVERITY_NOTE = {
+  High:     "Large pneumothorax — risk of tension physiology",
+  Moderate: "Moderate collapse — close monitoring indicated",
+  Low:      "Small pneumothorax — conservative management may apply",
+};
+
 export default function PneumothoraxAnalysis({ navigate }) {
   const { t } = useTheme();
   const [patientId, setPatientId] = useState("");
@@ -65,12 +71,12 @@ export default function PneumothoraxAnalysis({ navigate }) {
 
   const metrics = result && isPos ? [
     ...(result.affected_lung_pct > 0 ? [{
-      label: "Affected Lung Area", value: `${result.affected_lung_pct}%`,
-      sub: "of total lung field",
+      label: "Attention Coverage", value: `${result.affected_lung_pct}%`,
+      sub: "of lung field",
     }] : []),
     ...(result.boundary_length_pct > 0 ? [{
-      label: "Pleural Boundary", value: `${result.boundary_length_pct}%`,
-      sub: "boundary extent", color: "#f59e0b",
+      label: "Boundary Extent", value: `${result.boundary_length_pct}%`,
+      sub: "of image area", color: "#f59e0b",
     }] : []),
     ...(result.segmented_area_pct > 0 ? [{
       label: "Segmented Region", value: `${result.segmented_area_pct}%`,
@@ -79,14 +85,15 @@ export default function PneumothoraxAnalysis({ navigate }) {
     {
       label: "Pleural Separation",
       value: result.pleural_separation ? "Present" : "Absent",
-      sub: "boundary detection",
+      sub: "boundary detected",
       color: result.pleural_separation ? "#ef4444" : "#22c55e",
     },
   ] : [];
 
   const synthesis = result && isPos
-      ? `Boundary-aware attention localizes a pleural line affecting ${result.affected_lung_pct ?? "—"}% of the lung field. ` +
-      `Cyan contour marks the constrained pleural boundary; the highlighted negative space indicates air beyond it.`
+      ? `Attention is constrained to the lung fields and covers ${result.affected_lung_pct ?? "—"}% of that region. ` +
+      `The cyan contour marks where model attention drops off, indicating the likely pleural boundary. ` +
+      `Toggle to Standard Grad-CAM above to compare.`
       : null;
 
   return (
@@ -110,6 +117,7 @@ export default function PneumothoraxAnalysis({ navigate }) {
                 <HeatmapViewer
                     originalPreview={preview}
                     heatmap={result.heatmap_base64}
+                    standardHeatmap={result.standard_heatmap_base64}
                     modelName="EfficientNetB0"
                     onClear={clearFile}
                 />
@@ -137,11 +145,7 @@ export default function PneumothoraxAnalysis({ navigate }) {
                         ? `Pleural line pattern detected with ${result.confidence}% statistical certainty.`
                         : "No pleural separation pattern identified in this radiograph."}
                     severity={isPos ? urgency : null}
-                    severityNote={isPos ? {
-                      High: "Large pneumothorax — risk of tension physiology",
-                      Moderate: "Moderate collapse — close monitoring indicated",
-                      Low: "Small pneumothorax — conservative management may apply",
-                    }[urgency] : null}
+                    severityNote={isPos ? SEVERITY_NOTE[urgency] : null}
                 />
 
                 {isPos && <BiomarkersCard metrics={metrics} synthesis={synthesis} />}
