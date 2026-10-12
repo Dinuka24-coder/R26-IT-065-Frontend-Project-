@@ -48,6 +48,8 @@ const API_ROOT = BASE_URL.replace(/\/api\/v1\/?$/, "");
 function resolveHeatmapSrc(path) {
     if (!path) return null;
     if (/^https?:\/\//i.test(path)) return path;
+    // In-memory PNG data URI returned by the PNG/JPG analysis API - render as-is.
+    if (/^data:image\/png;base64,/i.test(path)) return path;
     return `${API_ROOT}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
