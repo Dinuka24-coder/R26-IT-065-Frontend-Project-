@@ -29,7 +29,7 @@ export default function BiomarkersCard({ metrics = [], synthesis }) {
             {synthesis && (
                 <div style={{ marginTop: 14, padding: "13px 15px", background: t.bg,
                     borderRadius: 10, fontSize: 13, lineHeight: 1.55 }}>
-                    <strong>AI Synthesis: </strong>
+                    <strong>Interpretation: </strong>
                     <span style={{ color: t.dim }}>{synthesis}</span>
                 </div>
             )}
