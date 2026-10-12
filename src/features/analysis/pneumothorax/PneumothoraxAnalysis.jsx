@@ -11,6 +11,7 @@ import HeatmapViewer from "../shared/HeatmapViewer";
 import DiagnosticConclusion from "../shared/DiagnosticConclusion";
 import BiomarkersCard from "../shared/BiomarkersCard";
 import ClinicalGuidance from "../shared/ClinicalGuidance";
+import DownloadReportButton from "../../../components/ui/DownloadReportButton";
 
 const GUIDANCE = {
   High: [
@@ -168,6 +169,9 @@ export default function PneumothoraxAnalysis({ navigate }) {
                       </div>
                     </Card>
                 )}
+
+                {/* ── PDF report for this result ── */}
+                <DownloadReportButton component="pneumothorax" resultId={result.result_id} full />
               </div>
           )}
         </div>
