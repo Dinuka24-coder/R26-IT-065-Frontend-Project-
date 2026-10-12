@@ -51,6 +51,11 @@ function resolveHeatmapSrc(path) {
     return `${API_ROOT}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
+// Single-image fallback - used ONLY by the DICOM result flow, which has
+// neither a frontend-held original image nor the DenseNet/Custom/Combined
+// backend fields (its backend contract was deliberately NOT changed).
+// This keeps the DICOM branch's existing, simple Grad-CAM presentation
+// exactly as it already works today.
 function GradCamImage({ path, title = "Grad-CAM Heatmap", emptyText = "No abnormality detected in this scan." }) {
     const { t } = useTheme();
     const src = resolveHeatmapSrc(path);
@@ -81,96 +86,185 @@ function GradCamImage({ path, title = "Grad-CAM Heatmap", emptyText = "No abnorm
     );
 }
 
-// Phase 3: Original / Heatmap / Overlay explorer, with a real,
-// continuously-adjustable opacity slider (not just three fixed
-// images). Only usable when BOTH the original image (already
-// available in the frontend for PNG uploads - see preview state in
-// LungCancerAnalysis.jsx, no backend round-trip needed) AND a separate
-// heatmap-only image (Phase 3's new, opt-in backend addition) are
-// provided. DICOM results have neither readily available, so this
-// component is not used there - GradCamImage (unchanged, overlay-only)
-// remains the DICOM Grad-CAM view.
+// Small stat tile used in the Combined view's Branch Comparison grid.
+function Stat({ t, label, value }) {
+    return (
+        <div style={{ border: `1px solid ${t.border}`, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ fontSize: 11.5, color: t.dim, marginBottom: 4, lineHeight: 1.35 }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: t.text, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+        </div>
+    );
+}
+
+// Grad-CAM explorer (PNG flow only): Original | DenseNet121 | Custom CNN |
+// Combined. Each of DenseNet121/Custom CNN/Combined is already a
+// backend-composited image (generate_gradcam() / generate_combined_gradcam())
+// - this component only displays them, it performs no heatmap computation
+// or image compositing of its own.
 //
-// The opacity slider layers the RAW heatmap over the original via CSS
-// opacity, giving true continuous control - the backend's pre-baked
-// overlay has its 60/40 blend fixed at generation time and can't be
-// adjusted after the fact. Default opacity (40%) matches that existing
-// backend blend ratio, so the initial "Overlay" view looks the same as
-// the fixed image always has.
+// Exported (named export) so LungCancerAnalysis.jsx can render it in its
+// own full-width section below the two-column analysis row.
 //
-// Honest limitation, not hidden: the original (arbitrary user
-// resolution) and the heatmap (fixed 224x224) are both stretched to
-// fill the same box for layering - this is a reasonable visual
-// approximation, not pixel-exact registration, especially for
-// originals with a very different aspect ratio than square.
-function GradCamExplorer({ originalImageSrc, heatmapOnlyPath, title = "Grad-CAM Explanation" }) {
+// LAYOUT: the image sits on the left, and the legend / branch-comparison
+// metrics sit beside it on the right (stacked below on narrow screens),
+// instead of a centred image with full-width stretched rows underneath.
+// Same tabs, same image URLs, same legends, same metrics and wording as
+// before - only their arrangement changed.
+//
+// Tabs are built from whichever URLs are actually present, so a result
+// missing one of the backend fields degrades gracefully rather than
+// showing a broken tab.
+export function GradCamExplorer({
+                                    originalImageSrc,
+                                    densenetGradcamUrl,
+                                    customGradcamUrl,
+                                    combinedGradcamUrl,
+                                    comparisonMetrics,
+                                    title = "Grad-CAM Explanation",
+                                    cardStyle = { marginTop: 12 },
+                                }) {
     const { t } = useTheme();
-    const [activeTab, setActiveTab] = useState("overlay"); // "original" | "heatmap" | "overlay"
-    const [opacity, setOpacity] = useState(0.4);
 
-    const heatmapSrc = resolveHeatmapSrc(heatmapOnlyPath);
+    const densenetSrc = resolveHeatmapSrc(densenetGradcamUrl);
+    const customSrc = resolveHeatmapSrc(customGradcamUrl);
+    const combinedSrc = resolveHeatmapSrc(combinedGradcamUrl);
 
-    if (!originalImageSrc || !heatmapSrc) {
+    const tabs = [
+        { key: "original", label: "Original", src: originalImageSrc },
+        { key: "densenet", label: "DenseNet121", src: densenetSrc },
+        { key: "custom", label: "Custom CNN", src: customSrc },
+        { key: "combined", label: "Combined", src: combinedSrc },
+    ].filter((tab) => Boolean(tab.src));
+
+    const [activeTab, setActiveTab] = useState(tabs[0]?.key ?? "original");
+
+    if (tabs.length === 0) {
         return null;
     }
 
-    const heatmapOpacity = activeTab === "original" ? 0 : activeTab === "heatmap" ? 1 : opacity;
+    const current = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
+
+    const panelHeading = { fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 6 };
+    const panelText = { fontSize: 12.5, color: t.dim, lineHeight: 1.55 };
 
     return (
-        <Card style={{ marginTop: 12 }}>
+        <Card style={cardStyle}>
             <SectionLabel>{title}</SectionLabel>
-            <div style={{ fontSize: 12, color: t.dim, marginBottom: 10 }}>
-                Grad-CAM highlights image regions that contributed to the model's
-                classification decision. It is a classification explanation, not a
-                segmentation or lesion-detection result.
+            <div style={{ fontSize: 12.5, color: t.dim, marginBottom: 14, lineHeight: 1.5 }}>
+                Grad-CAM highlights class-relevant regions contributing to the
+                classification decision. It is not segmentation or lesion detection.
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                <Button variant={activeTab === "original" ? "primary" : "secondary"} onClick={() => setActiveTab("original")}>
-                    Original
-                </Button>
-                <Button variant={activeTab === "heatmap" ? "primary" : "secondary"} onClick={() => setActiveTab("heatmap")}>
-                    Heatmap
-                </Button>
-                <Button variant={activeTab === "overlay" ? "primary" : "secondary"} onClick={() => setActiveTab("overlay")}>
-                    Overlay
-                </Button>
+            <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+                {tabs.map((tab) => (
+                    <Button
+                        key={tab.key}
+                        variant={current.key === tab.key ? "primary" : "secondary"}
+                        onClick={() => setActiveTab(tab.key)}
+                    >
+                        {tab.label}
+                    </Button>
+                ))}
             </div>
 
-            <div style={{ position: "relative", width: "100%", borderRadius: 10, overflow: "hidden" }}>
-                <img src={originalImageSrc} alt="Original" style={{ width: "100%", display: "block" }} />
-                <img
-                    src={heatmapSrc}
-                    alt="Grad-CAM heatmap"
+            <div className="lung-gradcam-body">
+                {/* Left: the selected image. 224x224 backend output is square,
+                    so a 1:1 box with object-fit: contain keeps it fully
+                    visible and undistorted at any width. */}
+                <div
                     style={{
-                        position: "absolute", inset: 0, width: "100%", height: "100%",
-                        objectFit: "fill", opacity: heatmapOpacity,
+                        width: "100%",
+                        maxWidth: 620,
+                        aspectRatio: "1 / 1",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        background: t.border,
                     }}
-                />
-            </div>
-
-            {activeTab === "overlay" && (
-                <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 12, color: t.dim, marginBottom: 4 }}>
-                        Grad-CAM Opacity — {Math.round(opacity * 100)}%
-                    </div>
-                    <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={opacity}
-                        onChange={(e) => setOpacity(parseFloat(e.target.value))}
-                        style={{ width: "100%" }}
+                >
+                    <img
+                        src={current.src}
+                        alt={`${current.label} view`}
+                        style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
                     />
                 </div>
-            )}
 
-            <div style={{ marginTop: 10, fontSize: 12, color: t.dim, textAlign: "center" }}>
-                <span style={{ color: "#0000ff" }}>■</span> Low &nbsp;
-                <span style={{ color: "#00ff00" }}>■</span> Medium &nbsp;
-                <span style={{ color: "#ffff00" }}>■</span> High &nbsp;
-                <span style={{ color: "#ff0000" }}>■</span> Very High
+                {/* Right: what this view is + its legend / metrics. */}
+                <div style={{ display: "grid", gap: 18, alignContent: "start" }}>
+                    {current.key === "original" && (
+                        <div>
+                            <div style={panelHeading}>Original CT image</div>
+                            <div style={panelText}>
+                                The uploaded image, shown for comparison with the Grad-CAM views.
+                            </div>
+                        </div>
+                    )}
+
+                    {(current.key === "densenet" || current.key === "custom") && (
+                        <div>
+                            <div style={panelHeading}>
+                                {current.key === "densenet" ? "DenseNet121 branch" : "Custom CNN branch"}
+                            </div>
+                            <div style={{ ...panelText, marginBottom: 10 }}>Activation intensity</div>
+                            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: t.dim }}>
+                                <span><span style={{ color: "#0000ff" }}>■</span> Low</span>
+                                <span><span style={{ color: "#00ff00" }}>■</span> Medium</span>
+                                <span><span style={{ color: "#ffff00" }}>■</span> High</span>
+                                <span><span style={{ color: "#ff0000" }}>■</span> Very High</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {current.key === "combined" && (
+                        <>
+                            <div>
+                                <div style={panelHeading}>Combined view</div>
+                                {/* Legend matches combined_gradcam.py's DENSENET_COLOR /
+                                    CUSTOM_COLOR exactly: DenseNet121 = blue, Custom CNN = orange. */}
+                                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12.5, color: t.dim, marginBottom: 8 }}>
+                                    <span><span style={{ color: "rgb(0,114,178)" }}>■</span> DenseNet121</span>
+                                    <span><span style={{ color: "rgb(230,159,0)" }}>■</span> Custom CNN</span>
+                                </div>
+                                <div style={panelText}>
+                                    Overlapping activation appears as a blend of both colors; the
+                                    outlines mark each branch's activated region.
+                                </div>
+                            </div>
+
+                            {comparisonMetrics && (
+                                <div>
+                                    <div style={panelHeading}>Branch Comparison</div>
+                                    <div className="lung-gradcam-stats">
+                                        <Stat
+                                            t={t}
+                                            label="Spatial overlap (IoU)"
+                                            value={`${(comparisonMetrics["iou_at_0.5"] * 100).toFixed(1)}%`}
+                                        />
+                                        <Stat
+                                            t={t}
+                                            label="Center distance between branches"
+                                            value={`${comparisonMetrics["center_of_mass_distance_px"].toFixed(1)}px`}
+                                        />
+                                        <Stat
+                                            t={t}
+                                            label="DenseNet121 activated area"
+                                            value={`${(comparisonMetrics["dense_area_above_0.5"] * 100).toFixed(1)}%`}
+                                        />
+                                        <Stat
+                                            t={t}
+                                            label="Custom CNN activated area"
+                                            value={`${(comparisonMetrics["custom_area_above_0.5"] * 100).toFixed(1)}%`}
+                                        />
+                                    </div>
+                                    <div style={{ ...panelText, marginTop: 12, fontStyle: "italic", fontSize: 12 }}>
+                                        These metrics quantify the spatial difference between the two
+                                        Grad-CAM activation maps. They do not indicate clinical accuracy
+                                        or prove tumor localization.
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
             </div>
         </Card>
     );
@@ -180,7 +274,7 @@ function ProbabilityRow({ t, label, value, isTop }) {
     const pct = Math.round(value * 1000) / 10; // real value, one decimal
     return (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <div style={{ width: 150, fontSize: 12.5, color: isTop ? t.text : t.dim, fontWeight: isTop ? 600 : 400 }}>
+            <div style={{ width: 172, flexShrink: 0, whiteSpace: "nowrap", fontSize: 12.5, color: isTop ? t.text : t.dim, fontWeight: isTop ? 600 : 400 }}>
                 {label}
             </div>
             <div style={{ flex: 1, height: 8, borderRadius: 4, background: t.border, overflow: "hidden" }}>
@@ -247,13 +341,31 @@ export default function LungResultCard({
                                            urgency,
                                            classProbabilities, // optional - see note above
                                            inputCheck,          // optional - Phase 2, see note below
-                                           heatmapPath,        // optional - passed straight to GradCamImage
-                                           originalImageSrc,   // optional - Phase 3, PNG only (see GradCamExplorer)
-                                           heatmapOnlyPath,     // optional - Phase 3, PNG only
+                                           heatmapPath,        // optional - DICOM fallback view (GradCamImage)
+                                           originalImageSrc,   // optional - PNG only, used by the UNCONTROLLED inline explorer
+                                           densenetGradcamUrl,  // optional - PNG only, DenseNet121 branch view (uncontrolled mode)
+                                           customGradcamUrl,    // optional - PNG only, Custom CNN branch view (uncontrolled mode)
+                                           combinedGradcamUrl,  // optional - PNG only, dual-branch comparison view (uncontrolled mode)
+                                           comparisonMetrics,   // optional - PNG only, real computed metrics dict (uncontrolled mode)
                                            extras = [],
+                                           // --- NEW, both optional, both backward compatible ---------------------
+                                           // Every EXISTING caller (the DICOM result flow, below) omits these two
+                                           // props, so isControlled is false and this card behaves EXACTLY as
+                                           // before: internal useState, Grad-CAM body (GradCamExplorer when
+                                           // originalImageSrc is present, otherwise the GradCamImage fallback)
+                                           // rendered inline under the button. Only the NEW PNG call site in
+                                           // LungCancerAnalysis.jsx passes these, making the button
+                                           // parent-controlled and suppressing the inline body (the parent then
+                                           // renders GradCamExplorer itself, in its own full-width section).
+                                           gradCamVisible,
+                                           onToggleGradCam,
                                        }) {
     const { t } = useTheme();
-    const [showGradCam, setShowGradCam] = useState(false);
+    const [internalShowGradCam, setInternalShowGradCam] = useState(false);
+
+    const isControlled = typeof onToggleGradCam === "function";
+    const showGradCam = isControlled ? Boolean(gradCamVisible) : internalShowGradCam;
+    const toggleGradCam = isControlled ? onToggleGradCam : () => setInternalShowGradCam((v) => !v);
 
     // Sorted by real probability, descending - not a hardcoded class order.
     const sortedProbs = classProbabilities
@@ -309,15 +421,28 @@ export default function LungResultCard({
 
             <Button
                 variant="secondary"
-                onClick={() => setShowGradCam((v) => !v)}
+                onClick={toggleGradCam}
                 style={{ marginTop: 16 }}
             >
                 <Eye size={14} /> {showGradCam ? "Hide Grad-CAM" : "View Grad-CAM"}
             </Button>
 
-            {showGradCam && (
-                originalImageSrc && heatmapOnlyPath
-                    ? <GradCamExplorer originalImageSrc={originalImageSrc} heatmapOnlyPath={heatmapOnlyPath} />
+            {/* Uncontrolled path only (no onToggleGradCam prop - this is the
+                DICOM result flow today, and any other future caller that
+                doesn't opt in): render the Grad-CAM body inline, exactly as
+                before - GradCamExplorer when originalImageSrc is supplied,
+                otherwise the GradCamImage single-heatmap fallback. The
+                controlled path (new PNG layout) renders nothing here - the
+                parent shows GradCamExplorer in its own full-width section. */}
+            {!isControlled && showGradCam && (
+                originalImageSrc
+                    ? <GradCamExplorer
+                        originalImageSrc={originalImageSrc}
+                        densenetGradcamUrl={densenetGradcamUrl}
+                        customGradcamUrl={customGradcamUrl}
+                        combinedGradcamUrl={combinedGradcamUrl}
+                        comparisonMetrics={comparisonMetrics}
+                    />
                     : <GradCamImage path={heatmapPath} />
             )}
         </Card>
