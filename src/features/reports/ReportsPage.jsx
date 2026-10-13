@@ -257,7 +257,7 @@ export default function ReportsPage() {
                                 </div>
                                 <div style={{ fontSize: 12.5, color: t.dim, marginTop: 3 }}>
                                     {r.patient_code}{r.patient_name ? ` · ${r.patient_name}` : ""} · {r.doctor_name || "Unknown doctor"} · {fmtDate(r.created_at)}
-                                    {typeof r.confidence === "number" ? ` · ${r.confidence.toFixed(1)}%` : ""}
+                                    {typeof r.confidence === "number" ? ` · ${r.confidence.toFixed(2)}%` : ""}
                                 </div>
                             </div>
                             <div style={{ display: "flex", gap: 8 }}>
