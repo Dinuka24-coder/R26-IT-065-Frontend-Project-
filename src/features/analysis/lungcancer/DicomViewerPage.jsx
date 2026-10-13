@@ -499,7 +499,7 @@ export default function DicomViewerPage({
 
             {analyzeError && <div className="error-box" style={{ marginTop: 16 }}>{analyzeError}</div>}
 
-            <Button
+            {/*<Button
                 variant="primary"
                 onClick={handleAnalyze}
                 disabled={analyzing || !seriesId}
@@ -512,7 +512,7 @@ export default function DicomViewerPage({
                 ) : (
                     "Analyze Current Slice"
                 )}
-            </Button>
+            </Button>*/}
         </div>
     );
 }

@@ -238,3 +238,58 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
+/* --- Component 4 PNG/JPG analysis page layout ---------------------------
+   Layout-only classes (no colors), so they are theme-safe. Added to give the
+   PNG flow ONE consistent content width and a responsive two-column row.
+   Breakpoint is on the viewport (the app sidebar takes ~285px of it). */
+
+.lung-page {
+    width: 100%;
+    max-width: 1200px;
+}
+
+.lung-page--narrow {
+    max-width: 660px;
+}
+
+.lung-analysis-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 18px;
+    align-items: start;
+}
+
+/* Caps the uploaded-scan preview height so the Run button stays in view.
+   Scoped to the wrapper div in LungCancerAnalysis.jsx. */
+.lung-scan-wrap img {
+    display: block;
+    width: 100%;
+    max-height: 380px;
+    object-fit: contain;
+}
+
+.lung-gradcam-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+}
+
+.lung-gradcam-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+@media (max-width: 1100px) {
+    .lung-analysis-grid,
+    .lung-gradcam-body {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .lung-gradcam-stats {
+        grid-template-columns: 1fr;
+    }
+}

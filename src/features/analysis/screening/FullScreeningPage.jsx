@@ -10,6 +10,17 @@ import Pill from "../../../components/ui/Pill";
 import ConfidenceBar from "../../../components/ui/ConfidenceBar";
 import SectionLabel from "../../../components/ui/SectionLabel";
 import { URGENCY_COLORS } from "../../../utils/constants";
+import DownloadScreeningButton from "../../../components/ui/DownloadScreeningButton";
+
+// Maps the screening "component" names to the names the PDF API expects
+const PDF_KEYS = {
+    pneumothorax: "pneumothorax",
+    pneumonia: "pneumonia",
+    tuberculosis: "tuberculosis",
+    tb: "tuberculosis",
+    lungcancer: "lungcancer",
+    lung_cancer: "lungcancer",
+};
 
 export default function FullScreeningPage({ navigate }) {
     const { t } = useTheme();
@@ -40,6 +51,13 @@ export default function FullScreeningPage({ navigate }) {
     }
 
     const hasFindings = result?.findings_count > 0;
+
+    // Saved result IDs of the engines that ran -> used for the combined PDF
+    const pdfIds = {};
+    (result?.results || []).forEach((r) => {
+        const key = PDF_KEYS[String(r.component || "").toLowerCase()];
+        if (r.available && key && r.result_id) pdfIds[key] = r.result_id;
+    });
 
     return (
         <AnalysisLayout
@@ -112,6 +130,9 @@ export default function FullScreeningPage({ navigate }) {
                             )}
                         </Card>
                     ))}
+
+                    {/* Combined PDF for the whole screening */}
+                    <DownloadScreeningButton ids={pdfIds} full />
                 </>
             )}
         >

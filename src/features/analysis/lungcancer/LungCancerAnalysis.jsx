@@ -1,23 +1,25 @@
 import "./lungcancer.css";
 import { useState, lazy, Suspense } from "react";
-import { FileImage, Layers3, AlertTriangle, Loader } from "lucide-react";
+import { FileImage, Layers3, AlertTriangle, Loader, ScanLine } from "lucide-react";
 import { predictLungCancer } from "../../../api/component4Api";
 import { useTheme } from "../../../context/ThemeContext";
-import AnalysisLayout from "../shared/AnalysisLayout";
 import PatientSelector from "../shared/PatientSelector";
 import ScanUploader from "../shared/ScanUploader";
 import PageHeader from "../../../components/ui/PageHeader";
 import Button from "../../../components/ui/Button";
 import Card from "../../../components/ui/Card";
+import DownloadReportButton from "../../../components/ui/DownloadReportButton";
 import DicomFileSelector from "./DicomFileSelector";
 // Component-4-specific result presentation (Prediction Information
 // panel: prediction, confidence, class probabilities, View Grad-CAM
 // toggle) - deliberately SEPARATE from the shared ResultCard.jsx used
 // by Components 1-3, which is NOT imported or modified here at all.
-// GradCamImage (the real fix for heatmap_url being a relative path,
-// not base64) now lives inside LungResultCard.jsx, toggled via its own
-// "View Grad-CAM" button rather than always rendered.
-import LungResultCard from "./LungResultCard";
+// GradCamExplorer is now also imported directly (named export, same
+// component, not duplicated) so the PNG flow's Grad-CAM visualization
+// can be rendered in its own full-width section below the two-column
+// analysis row, instead of inline inside LungResultCard's right-hand
+// column.
+import LungResultCard, { GradCamExplorer } from "./LungResultCard";
 // Lazy-loaded: these import @cornerstonejs/core, which transitively
 // requires @kitware/vtk.js -> xmlbuilder2 -> Node's events module -
 // evaluating that chain eagerly (via a static import) was crashing the
@@ -50,12 +52,24 @@ function DicomLoadingFallback({ t }) {
 //
 // Internally offers two sub-flows under the SAME page-key
 // ("analysis-lungcancer", already registered in App.jsx - unmodified):
-//   "png"   - existing PNG/JPG prediction template, using the shared
-//             ScanUploader/LungResultCard/AnalysisLayout exactly
-//             as Pneumothorax already does.
+//   "png"   - existing PNG/JPG prediction template. PREVIOUSLY composed
+//             via the shared AnalysisLayout; now built directly here
+//             with PageHeader/Card/Button/PatientSelector/ScanUploader
+//             (all unmodified shared components, just composed
+//             differently) because AnalysisLayout's `results` slot is
+//             one column inside its own fixed grid row and has no slot
+//             for content spanning full width below both columns.
+//             AnalysisLayout.jsx itself is NOT imported or modified.
+//             The two-column desktop grid below uses the exact same
+//             `repeat(auto-fit, minmax(330px, 1fr))` technique
+//             AnalysisLayout already used, so it collapses to a single
+//             stacked column on narrow/tablet/mobile widths exactly as
+//             before - no new CSS needed (lungcancer.css inspected;
+//             it has no existing layout classes for this page, and
+//             this file was already 100% inline-styled).
 //   "dicom" - Component-4-specific DICOM CT flow, with its own internal
 //             sub-navigation (dicomSubView) rather than a separate
-//             top-level route:
+//             top-level route - UNCHANGED:
 //               "select" - DicomFileSelector (patient must be chosen first)
 //               "2d"     - DicomViewerPage (slice scroll, window/level,
 //                          analyze-current-slice)
@@ -66,7 +80,13 @@ function DicomLoadingFallback({ t }) {
 //                          DicomViewerPage's "Analyze Current Slice"),
 //                          shown inline via the SAME LungResultCard
 //                          the PNG flow uses - no separate results page
-//                          exists in this architecture.
+//                          exists in this architecture. This call site
+//                          does NOT pass onToggleGradCam/gradCamVisible,
+//                          so LungResultCard falls back to its original,
+//                          uncontrolled, inline Grad-CAM behavior
+//                          (GradCamImage fallback since no original PNG
+//                          image is available here) - completely
+//                          unaffected by this change.
 export default function LungCancerAnalysis({ navigate }) {
     const { t } = useTheme();
     const [viewMode, setViewMode] = useState("png"); // "png" | "dicom"
@@ -81,18 +101,27 @@ export default function LungCancerAnalysis({ navigate }) {
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
 
+    // NEW: Grad-CAM visibility, lifted out of LungResultCard so the PNG
+    // flow can render the Grad-CAM section as a separate, full-width
+    // element below the two-column row rather than inline inside
+    // LungResultCard. Reset in run()/clearFile() so it behaves the same
+    // way the old inline (mount/unmount driven) state already did -
+    // hidden again whenever a new file is picked or a new prediction
+    // starts.
+    const [showGradCam, setShowGradCam] = useState(false);
+
     function onFile(f) {
         if (!f || !f.type.startsWith("image/")) return setError("Please select a valid image file.");
-        setError(""); setFile(f); setResult(null);
+        setError(""); setFile(f); setResult(null); setShowGradCam(false);
         const r = new FileReader();
         r.onload = (e) => setPreview(e.target.result);
         r.readAsDataURL(f);
     }
 
-    function clearFile() { setFile(null); setPreview(null); setResult(null); }
+    function clearFile() { setFile(null); setPreview(null); setResult(null); setShowGradCam(false); }
 
     async function run() {
-        setError(""); setLoading(true); setResult(null);
+        setError(""); setLoading(true); setResult(null); setShowGradCam(false);
         try { setResult(await predictLungCancer(patientId, file)); }
         catch (e) { setError(e.message); }
         finally { setLoading(false); }
@@ -107,6 +136,7 @@ export default function LungCancerAnalysis({ navigate }) {
 
     const isPos = isPositiveResult(result);
     const extras = result && isPos ? [] : [];
+    const canRun = Boolean(patientId && file);
 
     // --- DICOM sub-flow state ------------------------------------------------
     const [dicomSubView, setDicomSubView] = useState("select"); // "select" | "2d" | "3d" | "result"
@@ -155,7 +185,10 @@ export default function LungCancerAnalysis({ navigate }) {
 
         // --- DICOM slice analysis result - reuses the SAME LungResultCard
         // the PNG flow uses, with the SAME isPositiveResult()
-        // classification, for consistency between both sub-flows. --------------
+        // classification, for consistency between both sub-flows.
+        // No onToggleGradCam/gradCamVisible passed here - LungResultCard
+        // falls back to its original uncontrolled inline Grad-CAM
+        // behavior, unchanged. --------------------------------------------
         if (dicomSubView === "result" && dicomAnalysisResult) {
             const dResult = dicomAnalysisResult.result;
             const dIsPos = isPositiveResult(dResult);
@@ -205,12 +238,13 @@ export default function LungCancerAnalysis({ navigate }) {
         // --- DICOM file selection - the default DICOM sub-view ---------------
         return (
             <div>
+                {modeToggle}
                 <PageHeader
                     title="Lung Cancer Analysis"
                     subtitle="DICOM CT · MPR + 3D volume visualization"
                     onBack={() => navigate("analysis")}
                 />
-                {modeToggle}
+
                 <Card style={{ maxWidth: 660 }}>
                     <PatientSelector value={patientId} onChange={setPatientId} navigate={navigate} />
                     {!patientId && (
@@ -227,33 +261,90 @@ export default function LungCancerAnalysis({ navigate }) {
         );
     }
 
+    // --- PNG/JPG analysis - built directly here instead of through
+    // AnalysisLayout (shared, unmodified, not imported). Everything below
+    // shares ONE content width (.lung-page, see lungcancer.css) so the
+    // patient card, the two-column row and the Grad-CAM section all line up
+    // on the same left and right edges. Before a result exists the width
+    // is the original narrow 660px single column; once a result exists it
+    // widens to the two-column dashboard. -----------------------------------
     return (
         <div>
             {modeToggle}
-            <AnalysisLayout
+            <PageHeader
                 title="Lung Cancer Analysis"
                 subtitle="CT Scan · AI detection + Grad-CAM"
-                navigate={navigate}
-                onRun={run} canRun={Boolean(patientId && file)} loading={loading} error={error}
-                results={result && (
-                    // Phase 1 Step 1: real class_probabilities now flows
-                    // straight from the backend (predict()'s already-computed
-                    // raw_scores, exposed unchanged by run_prediction()).
-                    <LungResultCard
-                        prediction={result.prediction}
-                        confidence={result.confidence}
-                        isPositive={isPos}
-                        urgency={result.urgency}
-                        classProbabilities={result.class_probabilities}
-                        inputCheck={result.input_check}
-                        heatmapPath={result.heatmap_url}
-                        extras={extras}
-                    />
+                onBack={() => navigate("analysis")}
+            />
+
+            <div className={result ? "lung-page" : "lung-page lung-page--narrow"}>
+                {/* Patient selection - same PatientSelector component and
+                    patientId state as before. */}
+                <Card style={{ marginBottom: 18 }}>
+                    <PatientSelector value={patientId} onChange={setPatientId} navigate={navigate} />
+                </Card>
+
+                {/* Analysis row: scan + controls on the left, prediction
+                    summary on the right, aligned at the top. Stacks on
+                    narrow viewports (see .lung-analysis-grid). */}
+                <div className={result ? "lung-analysis-grid" : undefined}>
+                    <Card>
+                        {/* .lung-scan-wrap caps the preview height so the Run
+                            button stays in view. */}
+                        <div className="lung-scan-wrap">
+                            <ScanUploader preview={preview} onFile={onFile} onClear={clearFile} hint="PNG · JPG" />
+                        </div>
+                        {error && <div style={{ marginTop: 14, color: "#ef4444", fontSize: 13 }}>{error}</div>}
+                        <div style={{ marginTop: 18 }}>
+                            <Button onClick={run} disabled={!canRun || loading} full>
+                                <ScanLine size={15} /> {loading ? "Analyzing…" : "Run AI Analysis"}
+                            </Button>
+                        </div>
+                    </Card>
+
+                    {/* Prediction summary only - the Grad-CAM toggle is
+                        controlled from here, but the visualization renders
+                        in the full-width section below. Real
+                        class_probabilities etc. flow straight from the
+                        backend response, unchanged. */}
+                    {result && (
+                        <LungResultCard
+                            prediction={result.prediction}
+                            confidence={result.confidence}
+                            isPositive={isPos}
+                            urgency={result.urgency}
+                            classProbabilities={result.class_probabilities}
+                            inputCheck={result.input_check}
+                            heatmapPath={result.heatmap_url}
+                            extras={extras}
+                            gradCamVisible={showGradCam}
+                            onToggleGradCam={() => setShowGradCam((v) => !v)}
+                        />
+                    )}
+                </div>
+
+                {/* Full-width Grad-CAM section, below the whole row, same
+                    18px spacing as everything else (cardStyle zeroes the
+                    explorer's own default top margin so it isn't doubled). */}
+                {result && showGradCam && (
+                    <div style={{ marginTop: 18 }}>
+                        <GradCamExplorer
+                            originalImageSrc={preview}
+                            densenetGradcamUrl={result.densenet_gradcam_url}
+                            customGradcamUrl={result.custom_gradcam_url}
+                            combinedGradcamUrl={result.combined_gradcam_url}
+                            comparisonMetrics={result.comparison_metrics}
+                            cardStyle={{ marginTop: 0 }}
+                        />
+                    </div>
                 )}
-            >
-                <PatientSelector value={patientId} onChange={setPatientId} navigate={navigate} />
-                <ScanUploader preview={preview} onFile={onFile} onClear={clearFile} hint="PNG · JPG" />
-            </AnalysisLayout>
+
+                {result && (
+                    <div style={{ marginTop: 18 }}>
+                        <DownloadReportButton component="lungcancer" resultId={result.result_id} full />
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

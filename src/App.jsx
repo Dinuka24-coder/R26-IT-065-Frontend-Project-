@@ -19,16 +19,30 @@ import PneumothoraxAnalysis from "./features/analysis/pneumothorax/PneumothoraxA
 import PneumoniaAnalysis from "./features/analysis/pneumonia/PneumoniaAnalysis";
 import TuberculosisAnalysis from "./features/analysis/tuberculosis/TuberculosisAnalysis";
 import LungCancerAnalysis from "./features/analysis/lungcancer/LungCancerAnalysis";
+import FullScreeningPage from "./features/analysis/screening/FullScreeningPage";
 import PredictionHistoryPage from "./features/history/PredictionHistoryPage";
 import ReportsPage from "./features/reports/ReportsPage";
 import SettingsPage from "./features/settings/SettingsPage";
-import FullScreeningPage from "./features/analysis/screening/FullScreeningPage";
+
+// ── Restore the last page across refreshes ─────────────────────
+function loadPage() {
+  return sessionStorage.getItem("pulmo_page") || "dashboard";
+}
+
+function loadCtx() {
+  try {
+    const raw = sessionStorage.getItem("pulmo_ctx");
+    return raw && raw !== "undefined" ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 function Shell() {
   const { user, isAdmin, updateUser } = useAuth();
   const { t } = useTheme();
-  const [page, setPage] = useState("dashboard");
-  const [ctx, setCtx] = useState({});
+  const [page, setPage] = useState(loadPage);
+  const [ctx, setCtx] = useState(loadCtx);
 
   if (!user) return <LoginPage />;
 
@@ -45,8 +59,11 @@ function Shell() {
   }
 
   function navigate(next, extra = {}) {
-    setCtx((c) => ({ ...c, ...extra }));
+    const merged = { ...ctx, ...extra };
+    setCtx(merged);
     setPage(next);
+    sessionStorage.setItem("pulmo_page", next);
+    sessionStorage.setItem("pulmo_ctx", JSON.stringify(merged));
   }
 
   const adminOnly = (el) => (isAdmin ? el : <DashboardPage navigate={navigate} />);
@@ -65,11 +82,16 @@ function Shell() {
     "analysis-pneumonia":    <PneumoniaAnalysis navigate={navigate} />,
     "analysis-tuberculosis": <TuberculosisAnalysis navigate={navigate} />,
     "analysis-lungcancer":   <LungCancerAnalysis navigate={navigate} />,
+    "analysis-full":         <FullScreeningPage navigate={navigate} />,
     "history":               <PredictionHistoryPage />,
     "reports":               <ReportsPage />,
     "settings":              adminOnly(<SettingsPage />),
-      "analysis-full": <FullScreeningPage navigate={navigate} />,
   };
+
+  // Detail pages need their context — fall back if it's missing
+  let current = pages[page];
+  if (page === "patient-detail" && !ctx.patientId) current = pages["patients-search"];
+  if (page === "doctor-detail" && !ctx.doctor)     current = pages["doctors"];
 
   return (
       <div style={{ display: "flex", minHeight: "100vh", background: t.bg, color: t.text }}>
@@ -77,7 +99,7 @@ function Shell() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
           <TopBar navigate={navigate} />
           <main style={{ flex: 1, padding: "28px 32px", overflowY: "auto" }}>
-            {pages[page] || pages["dashboard"]}
+            {current || pages["dashboard"]}
           </main>
         </div>
       </div>

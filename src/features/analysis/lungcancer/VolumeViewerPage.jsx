@@ -5,7 +5,7 @@ import {
     Enums as CoreEnums,
     setVolumesForViewports,
 } from "@cornerstonejs/core";
-import { addTool, ZoomTool, PanTool, StackScrollTool, TrackballRotateTool, ToolGroupManager, Enums as ToolEnums } from "@cornerstonejs/tools";
+import { addTool, ZoomTool, PanTool, StackScrollTool, TrackballRotateTool, CrosshairsTool, ToolGroupManager, Enums as ToolEnums } from "@cornerstonejs/tools";
 import {
     getDicomVolumeAcquisitions,
     getDicomVolumeMetadata,
@@ -129,7 +129,10 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
     const renderingEngineRef = useRef(null);
     const viewportRef = useRef(null);
     const volumeIdRef = useRef(null);
-    const [orientation, setOrientation] = useState("axial"); // "axial" | "coronal" | "sagittal"
+    // Phase 05B: removed the "orientation" tab-selection state - all
+    // three MPR panels are now shown simultaneously, so a single active-
+    // orientation selector no longer has a purpose. The three viewport
+    // refs/IDs/Cornerstone setup below are completely unchanged.
 
     // --- Genuine VOLUME_3D mode - separate viewport ref/toolgroup, but
     // SHARES renderingEngineRef above rather than owning its own engine.
@@ -237,6 +240,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                 addTool(ZoomTool);
                 addTool(PanTool);
                 addTool(StackScrollTool);
+                addTool(CrosshairsTool);
                 volumeToolsRegisteredGlobally = true;
             }
 
@@ -301,6 +305,23 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                 // scrolling Axial does not affect Coronal/Sagittal.
                 toolGroup.setToolActive(StackScrollTool.toolName, {
                     bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
+                });
+                // Phase 05A: synchronized MPR crosshair. Confirmed from the
+                // real installed CrosshairsTool source that it discovers
+                // sibling viewports via getToolGroup(this.toolGroupId)
+                // .viewportsInfo - the SAME three Axial/Coronal/Sagittal
+                // viewports already registered on this ToolGroup below
+                // (toolGroup.addViewport, in the loop after this block) are
+                // automatically what it synchronizes against - no separate
+                // registration needed. Bound to Auxiliary (middle-drag) -
+                // confirmed free in this specific ToolGroup (Primary/
+                // Secondary/Wheel are already Pan/Zoom/StackScroll here;
+                // Auxiliary is only used in the SEPARATE 3D ToolGroup, for
+                // TrackballRotateTool, which this does not touch). Default
+                // tool configuration - no custom options passed.
+                toolGroup.addTool(CrosshairsTool.toolName);
+                toolGroup.setToolActive(CrosshairsTool.toolName, {
+                    bindings: [{ mouseButton: ToolEnums.MouseBindings.Auxiliary }],
                 });
             }
             // One shared ToolGroup, all three MPR viewports added to it -
@@ -506,6 +527,29 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
             viewport3DRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode]);
+
+    // Phase 05B: the three MPR panels changed from tab-switched
+    // (one panel at near-full size at a time) to a simultaneous grid
+    // (all three at roughly 1/2-1/4 the previous size). Cornerstone's
+    // viewports were sized correctly at creation time for the OLD
+    // layout; when the panels first appear in the new, smaller grid
+    // (or when returning to MPR mode after visiting 3D), their actual
+    // DOM size has changed and Cornerstone needs to be told, via its
+    // own real, public resize() API (confirmed from the installed
+    // @cornerstonejs/core source: RenderingEngine.resize(immediate,
+    // keepCamera) re-reads each viewport's current DOM element size and
+    // re-fits VTK's render targets/cameras accordingly - keepCamera=true
+    // preserves the current pan/zoom/slice position rather than
+    // resetting it). requestAnimationFrame ensures the browser has
+    // actually completed layout for the new grid before Cornerstone
+    // reads element sizes - not just assumed React's commit is enough.
+    useEffect(() => {
+        if (mode !== "mpr" || !renderingEngineRef.current) return;
+        const raf = requestAnimationFrame(() => {
+            renderingEngineRef.current?.resize(true, true);
+        });
+        return () => cancelAnimationFrame(raf);
     }, [mode]);
 
     // --- MPR window/level presets - applied to ALL THREE MPR viewports
@@ -723,29 +767,6 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
 
                 {mode === "mpr" && (
                     <div className="dicom-tool-row" style={{ marginBottom: 12 }}>
-                        <Button
-                            variant={orientation === "axial" ? "primary" : "secondary"}
-                            onClick={() => setOrientation("axial")}
-                        >
-                            Axial
-                        </Button>
-                        <Button
-                            variant={orientation === "coronal" ? "primary" : "secondary"}
-                            onClick={() => setOrientation("coronal")}
-                        >
-                            Coronal
-                        </Button>
-                        <Button
-                            variant={orientation === "sagittal" ? "primary" : "secondary"}
-                            onClick={() => setOrientation("sagittal")}
-                        >
-                            Sagittal
-                        </Button>
-                    </div>
-                )}
-
-                {mode === "mpr" && (
-                    <div className="dicom-tool-row" style={{ marginBottom: 12 }}>
                         <span className="dicom-window-label">Window:</span>
                         {Object.entries(MPR_WINDOW_PRESETS).map(([key, preset]) => (
                             <Button
@@ -792,51 +813,56 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                     </div>
                 )}
 
+                {/* Phase 05B: all three MPR panels shown simultaneously in a
+                    grid instead of tab-switched display:none/block. The
+                    underlying viewport refs/IDs/Cornerstone setup are
+                    completely unchanged from Phase 05A - only this
+                    presentation layer changed. A single shared loading/error
+                    indicator covers the grid (all three load together via
+                    one setVolumesForViewports call, same as before). */}
                 <div
-                    className="dicom-viewport-wrap"
-                    style={{ height: 480, minHeight: 480, display: mode === "mpr" && orientation === "axial" ? "block" : "none" }}
+                    style={{
+                        display: mode === "mpr" ? "grid" : "none",
+                        gridTemplateColumns: "1fr 1fr",
+                        gridTemplateRows: "260px 260px",
+                        gap: 8,
+                    }}
                 >
-                    <div
-                        ref={elementAxialRef}
-                        className="dicom-viewport"
-                        style={{ width: "100%", height: 480, minHeight: 480 }}
-                    />
-                    {loadingStage && mode === "mpr" && orientation === "axial" && (
-                        <div className="dicom-viewport-loading">
-                            <Loader size={28} className="spin" color="#fff" />
-                            <span style={{ color: "#fff", marginTop: 8 }}>{loadingStage}</span>
-                        </div>
-                    )}
-                </div>
+                    <div className="dicom-viewport-wrap" style={{ position: "relative", height: 260, minHeight: 260 }}>
+                        <span style={{
+                            position: "absolute", top: 6, left: 8, zIndex: 1,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.05em",
+                            color: "rgba(255,255,255,0.85)", textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+                        }}>AXIAL</span>
+                        <div ref={elementAxialRef} className="dicom-viewport" style={{ width: "100%", height: "100%" }} />
+                    </div>
 
-                <div
-                    className="dicom-viewport-wrap"
-                    style={{ height: 480, minHeight: 480, display: mode === "mpr" && orientation === "coronal" ? "block" : "none" }}
-                >
-                    <div
-                        ref={elementCoronalRef}
-                        className="dicom-viewport"
-                        style={{ width: "100%", height: 480, minHeight: 480 }}
-                    />
-                    {loadingStage && mode === "mpr" && orientation === "coronal" && (
-                        <div className="dicom-viewport-loading">
-                            <Loader size={28} className="spin" color="#fff" />
-                            <span style={{ color: "#fff", marginTop: 8 }}>{loadingStage}</span>
-                        </div>
-                    )}
-                </div>
+                    <div className="dicom-viewport-wrap" style={{ position: "relative", height: 260, minHeight: 260 }}>
+                        <span style={{
+                            position: "absolute", top: 6, left: 8, zIndex: 1,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.05em",
+                            color: "rgba(255,255,255,0.85)", textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+                        }}>CORONAL</span>
+                        <div ref={elementCoronalRef} className="dicom-viewport" style={{ width: "100%", height: "100%" }} />
+                    </div>
 
-                <div
-                    className="dicom-viewport-wrap"
-                    style={{ height: 480, minHeight: 480, display: mode === "mpr" && orientation === "sagittal" ? "block" : "none" }}
-                >
                     <div
-                        ref={elementSagittalRef}
-                        className="dicom-viewport"
-                        style={{ width: "100%", height: 480, minHeight: 480 }}
-                    />
-                    {loadingStage && mode === "mpr" && orientation === "sagittal" && (
-                        <div className="dicom-viewport-loading">
+                        className="dicom-viewport-wrap"
+                        style={{ position: "relative", height: 260, minHeight: 260, gridColumn: "1 / span 2" }}
+                    >
+                        <span style={{
+                            position: "absolute", top: 6, left: 8, zIndex: 1,
+                            fontSize: 11, fontWeight: 700, letterSpacing: "0.05em",
+                            color: "rgba(255,255,255,0.85)", textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+                        }}>SAGITTAL</span>
+                        <div ref={elementSagittalRef} className="dicom-viewport" style={{ width: "100%", height: "100%" }} />
+                    </div>
+
+                    {loadingStage && mode === "mpr" && (
+                        <div
+                            className="dicom-viewport-loading"
+                            style={{ gridColumn: "1 / span 2", gridRow: "1 / span 2" }}
+                        >
                             <Loader size={28} className="spin" color="#fff" />
                             <span style={{ color: "#fff", marginTop: 8 }}>{loadingStage}</span>
                         </div>
