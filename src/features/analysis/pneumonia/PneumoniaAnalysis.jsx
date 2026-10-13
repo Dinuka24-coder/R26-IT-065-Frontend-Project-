@@ -22,6 +22,7 @@ import PatientSelector from "../shared/PatientSelector";
 import Card from "../../../components/ui/Card";
 import Pill from "../../../components/ui/Pill";
 import SectionLabel from "../../../components/ui/SectionLabel";
+import DownloadReportButton from "../../../components/ui/DownloadReportButton";
 
 export default function PneumoniaAnalysis({ navigate }) {
   const { t, dark } = useTheme();
@@ -324,6 +325,9 @@ export default function PneumoniaAnalysis({ navigate }) {
                 <strong>Clinical Note:</strong> AI predictions are intended to assist diagnostic workflows and must be verified by a licensed radiologist or physician.
               </span>
             </div>
+
+            {/* PDF report for this pneumonia result */}
+            <DownloadReportButton component="pneumonia" resultId={result.result_id} full />
           </div>
         )
       }

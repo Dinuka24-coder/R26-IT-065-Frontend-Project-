@@ -28,6 +28,7 @@ export async function predictPneumonia(patientId, file) {
 
   return {
     ...data,
+    result_id: data.result_id || data.database_record_id || null,
     prediction: data.diagnosis || (isPos ? "Pneumonia Detected" : "Normal"),
     confidence: confValue,
     urgency,
