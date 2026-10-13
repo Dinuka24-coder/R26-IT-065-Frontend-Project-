@@ -8,6 +8,7 @@ import ScanUploader from "../shared/ScanUploader";
 import PageHeader from "../../../components/ui/PageHeader";
 import Button from "../../../components/ui/Button";
 import Card from "../../../components/ui/Card";
+import DownloadReportButton from "../../../components/ui/DownloadReportButton";
 import DicomFileSelector from "./DicomFileSelector";
 // Component-4-specific result presentation (Prediction Information
 // panel: prediction, confidence, class probabilities, View Grad-CAM
@@ -335,6 +336,12 @@ export default function LungCancerAnalysis({ navigate }) {
                             comparisonMetrics={result.comparison_metrics}
                             cardStyle={{ marginTop: 0 }}
                         />
+                    </div>
+                )}
+
+                {result && (
+                    <div style={{ marginTop: 18 }}>
+                        <DownloadReportButton component="lungcancer" resultId={result.result_id} full />
                     </div>
                 )}
             </div>
