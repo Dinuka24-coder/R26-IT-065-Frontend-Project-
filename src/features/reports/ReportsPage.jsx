@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, FileText, Eye, Download, X, Stethoscope, Activity, User, List } from "lucide-react";
+import { Search, FileText, Eye, Download, X, Stethoscope, Activity, User, List, Layers } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import PageHeader from "../../components/ui/PageHeader";
 import Card from "../../components/ui/Card";
@@ -10,10 +10,12 @@ import {
     downloadResultPdf,
     previewSummaryPdf,
     downloadSummaryPdf,
+    previewScreeningPdf,
+    downloadScreeningPdf,
 } from "../../api/pdfReportApi";
 
 const DISEASES = ["Pneumothorax", "Pneumonia", "Tuberculosis", "Lung Cancer"];
-const EMPTY = { search: "", start_date: "", end_date: "", disease: "all", status: "all", doctor_id: "", patient_id: "" };
+const EMPTY = { search: "", start_date: "", end_date: "", disease: "all", status: "all", source: "all", doctor_id: "", patient_id: "" };
 
 // "2026-10-12T18:20:00+00:00" -> local date "2026-10-12" (used for the date filter)
 const localDay = (iso) => (iso ? new Date(iso).toLocaleDateString("en-CA") : "");
@@ -92,9 +94,30 @@ export default function ReportsPage() {
             if (f.status === "Normal" && r.positive) return false;
             if (f.doctor_id && r.doctor_id !== f.doctor_id) return false;
             if (f.patient_id && r.patient_code !== f.patient_id) return false;
+            if (f.source === "single" && r.source === "full_screening") return false;
+            if (f.source === "full_screening" && r.source !== "full_screening") return false;
             return true;
         });
     }, [rows, f]);
+
+    // "All results" list: results of one Full Screening are shown together as one card
+    const listItems = useMemo(() => {
+        const byScreening = new Map();
+        filtered.forEach((r) => {
+            if (!r.screening_id) return;
+            if (!byScreening.has(r.screening_id)) byScreening.set(r.screening_id, []);
+            byScreening.get(r.screening_id).push(r);
+        });
+        const shown = new Set();
+        const items = [];
+        filtered.forEach((r) => {
+            if (!r.screening_id) return items.push({ type: "single", row: r });
+            if (shown.has(r.screening_id)) return;
+            shown.add(r.screening_id);
+            items.push({ type: "screening", id: r.screening_id, rows: byScreening.get(r.screening_id) });
+        });
+        return items;
+    }, [filtered]);
 
     // groups for "By doctor / disease / patient"
     const groups = useMemo(() => {
@@ -123,7 +146,7 @@ export default function ReportsPage() {
     // filters that the backend PDF should use (same as the screen)
     const pdfFilters = (extra = {}) => ({
         search: f.search.trim(), start_date: f.start_date, end_date: f.end_date,
-        disease: f.disease, status: f.status, doctor_id: f.doctor_id, patient_id: f.patient_id, ...extra,
+        disease: f.disease, status: f.status, source: f.source, doctor_id: f.doctor_id, patient_id: f.patient_id, ...extra,
     });
     const groupFilter = (g) =>
         view === "doctor" ? { doctor_id: g.key } : view === "disease" ? { disease: g.key } : { patient_id: g.key };
@@ -170,6 +193,14 @@ export default function ReportsPage() {
                         <select value={f.disease} onChange={set("disease")} style={input}>
                             <option value="all">All diseases</option>
                             {DISEASES.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <div style={label}>Source</div>
+                        <select value={f.source} onChange={set("source")} style={input}>
+                            <option value="all">All sources</option>
+                            <option value="single">Single analysis</option>
+                            <option value="full_screening">Full screening</option>
                         </select>
                     </div>
                     <div>
@@ -240,38 +271,16 @@ export default function ReportsPage() {
                 <Card><div style={{ color: t.dim, fontSize: 14 }}>No reports match these filters.</div></Card>
             )}
 
-            {/* ── All results: one row per analysis ───────────────── */}
+            {/* ── All results: one row per analysis, Full Screening results grouped ── */}
             {!loading && view === "all" && (
                 <div style={{ display: "grid", gap: 10 }}>
-                    {filtered.map((r) => (
-                        <Card key={r.result_id} style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-                            <div style={{ width: 38, height: 38, borderRadius: 10, display: "grid", placeItems: "center",
-                                background: r.positive ? "rgba(239,68,68,.1)" : "rgba(37,99,235,.1)",
-                                color: r.positive ? "#ef4444" : "#2563eb", flexShrink: 0 }}>
-                                <FileText size={18} />
-                            </div>
-                            <div style={{ flex: 1, minWidth: 220 }}>
-                                <div style={{ fontWeight: 600, fontSize: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                                    {r.disease} — {r.scan_type}
-                                    <Pill tone={r.positive ? "danger" : "success"}>{r.prediction}</Pill>
-                                </div>
-                                <div style={{ fontSize: 12.5, color: t.dim, marginTop: 3 }}>
-                                    {r.patient_code}{r.patient_name ? ` · ${r.patient_name}` : ""} · {r.doctor_name || "Unknown doctor"} · {fmtDate(r.created_at)}
-                                    {typeof r.confidence === "number" ? ` · ${r.confidence.toFixed(2)}%` : ""}
-                                </div>
-                            </div>
-                            <div style={{ display: "flex", gap: 8 }}>
-                                <SmallBtn icon={Eye} busy={busy === `p-${r.result_id}`}
-                                          onClick={() => act(`p-${r.result_id}`, () => previewResultPdf(r.component, r.result_id))}>
-                                    Preview
-                                </SmallBtn>
-                                <SmallBtn icon={Download} busy={busy === `d-${r.result_id}`}
-                                          onClick={() => act(`d-${r.result_id}`, () => downloadResultPdf(r.component, r.result_id))}>
-                                    Download
-                                </SmallBtn>
-                            </div>
-                        </Card>
-                    ))}
+                    {listItems.map((item) =>
+                        item.type === "single" ? (
+                            <ResultRow key={item.row.result_id} r={item.row} busy={busy} act={act} />
+                        ) : (
+                            <ScreeningCard key={item.id} rows={item.rows} busy={busy} act={act} />
+                        )
+                    )}
                 </div>
             )}
 
@@ -325,5 +334,91 @@ export default function ReportsPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+
+/* ── one analysis row ── */
+function ResultRow({ r, busy, act, compact = false }) {
+    const { t } = useTheme();
+    const body = (
+        <>
+            <div style={{ width: compact ? 30 : 38, height: compact ? 30 : 38, borderRadius: 10, display: "grid", placeItems: "center",
+                background: r.positive ? "rgba(239,68,68,.1)" : "rgba(37,99,235,.1)",
+                color: r.positive ? "#ef4444" : "#2563eb", flexShrink: 0 }}>
+                <FileText size={compact ? 15 : 18} />
+            </div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontWeight: 600, fontSize: compact ? 13 : 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    {r.disease}{compact ? "" : ` — ${r.scan_type}`}
+                    <Pill tone={r.positive ? "danger" : "success"}>{r.prediction}</Pill>
+                    {!compact && r.source === "full_screening" && <Pill tone="info">Full screening</Pill>}
+                </div>
+                <div style={{ fontSize: 12.5, color: t.dim, marginTop: 3 }}>
+                    {compact
+                        ? (typeof r.confidence === "number" ? `${r.confidence.toFixed(2)}% confidence` : "")
+                        : <>
+                            {r.patient_code}{r.patient_name ? ` · ${r.patient_name}` : ""} · {r.doctor_name || "Unknown doctor"} · {fmtDate(r.created_at)}
+                            {typeof r.confidence === "number" ? ` · ${r.confidence.toFixed(2)}%` : ""}
+                        </>}
+                </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+                <SmallBtn icon={Eye} busy={busy === `p-${r.result_id}`}
+                          onClick={() => act(`p-${r.result_id}`, () => previewResultPdf(r.component, r.result_id))}>
+                    Preview
+                </SmallBtn>
+                <SmallBtn icon={Download} busy={busy === `d-${r.result_id}`}
+                          onClick={() => act(`d-${r.result_id}`, () => downloadResultPdf(r.component, r.result_id))}>
+                    Download
+                </SmallBtn>
+            </div>
+        </>
+    );
+    return compact
+        ? <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 0",
+            borderTop: `1px solid ${t.border}` }}>{body}</div>
+        : <Card style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>{body}</Card>;
+}
+
+/* ── one Full Screening: one image, several engine results ── */
+function ScreeningCard({ rows, busy, act }) {
+    const { t } = useTheme();
+    const first = rows[0];
+    const findings = rows.filter((r) => r.positive);
+    const ids = Object.fromEntries(rows.map((r) => [r.component, r.result_id]));
+    const key = `s-${first.screening_id}`;
+
+    return (
+        <Card style={{ borderLeft: `4px solid ${findings.length ? "#ef4444" : "#22c55e"}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, display: "grid", placeItems: "center",
+                    background: "rgba(139,92,246,.12)", color: "#8b5cf6", flexShrink: 0 }}>
+                    <Layers size={18} />
+                </div>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        Full Screening — X-ray
+                        <Pill tone={findings.length ? "danger" : "success"}>
+                            {findings.length ? findings.map((r) => r.disease).join(", ") : "No abnormality detected"}
+                        </Pill>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: t.dim, marginTop: 3 }}>
+                        {first.patient_code}{first.patient_name ? ` · ${first.patient_name}` : ""} · {first.doctor_name || "Unknown doctor"} · {fmtDate(first.created_at)} · {rows.length} engine{rows.length === 1 ? "" : "s"}
+                    </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                    <SmallBtn icon={Eye} busy={busy === `${key}-p`} onClick={() => act(`${key}-p`, () => previewScreeningPdf(ids))}>
+                        Preview
+                    </SmallBtn>
+                    <SmallBtn icon={Download} primary busy={busy === `${key}-d`} onClick={() => act(`${key}-d`, () => downloadScreeningPdf(ids))}>
+                        Screening PDF
+                    </SmallBtn>
+                </div>
+            </div>
+            <div style={{ marginTop: 12, paddingLeft: 52 }}>
+                {rows.map((r) => <ResultRow key={r.result_id} r={r} busy={busy} act={act} compact />)}
+            </div>
+        </Card>
     );
 }
