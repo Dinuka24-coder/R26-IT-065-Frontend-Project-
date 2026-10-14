@@ -4,6 +4,7 @@ import { useTheme } from "../../context/ThemeContext";
 import PageHeader from "../../components/ui/PageHeader";
 import Card from "../../components/ui/Card";
 import Pill from "../../components/ui/Pill";
+import Pagination, { usePagination } from "../../components/ui/Pagination";
 import {
     getReportList,
     previewResultPdf,
@@ -25,6 +26,19 @@ const fmtDate = (iso) =>
             day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true,
         })
         : "-";
+
+// true when a colour like "#0f172a" is dark (used to tell the browser we are in dark mode)
+const isDarkColor = (hex) => {
+    const h = String(hex || "").replace("#", "");
+    if (h.length < 6) return false;
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
+};
+
+// A MongoDB id (24 hex characters) is not useful to show — show the name instead
+const isMongoId = (v) => /^[0-9a-f]{24}$/i.test(String(v || ""));
+const patientLabel = (code, name) =>
+    isMongoId(code) ? (name || "Unknown patient") : name ? `${code} · ${name}` : code;
 
 /* ── small outline button like the one in the old design ── */
 function SmallBtn({ icon: Icon, children, onClick, busy, primary }) {
@@ -77,7 +91,7 @@ export default function ReportsPage() {
     const patients = useMemo(() => {
         const m = new Map();
         rows.forEach((r) => m.set(r.patient_code, r.patient_name));
-        return [...m].sort((a, b) => a[0].localeCompare(b[0]));
+        return [...m].sort((a, b) => patientLabel(...a).localeCompare(patientLabel(...b)));
     }, [rows]);
 
     // apply filters
@@ -125,7 +139,8 @@ export default function ReportsPage() {
         const keyOf = {
             doctor: (r) => [r.doctor_id || "-", r.doctor_name || "Unknown doctor", ""],
             disease: (r) => [r.disease, r.disease, r.scan_type],
-            patient: (r) => [r.patient_code, r.patient_name || r.patient_code, r.patient_code],
+            patient: (r) => [r.patient_code, r.patient_name || patientLabel(r.patient_code, ""),
+                isMongoId(r.patient_code) ? "" : r.patient_code],
         }[view];
         const m = new Map();
         filtered.forEach((r) => {
@@ -143,6 +158,11 @@ export default function ReportsPage() {
         return [...m.values()].sort((a, b) => b.scans - a.scans);
     }, [filtered, view]);
 
+    // pagination (goes back to page 1 when filters or view change)
+    const resetKey = JSON.stringify(f) + view;
+    const pgList = usePagination(listItems, 10, resetKey);
+    const pgGroups = usePagination(groups, 12, resetKey);
+
     // filters that the backend PDF should use (same as the screen)
     const pdfFilters = (extra = {}) => ({
         search: f.search.trim(), start_date: f.start_date, end_date: f.end_date,
@@ -156,10 +176,13 @@ export default function ReportsPage() {
         try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(""); }
     }
 
+    const dark = isDarkColor(t.card || t.bg);
     const input = {
         width: "100%", padding: "9px 11px", borderRadius: 8, fontSize: 13,
-        border: `1px solid ${t.border}`, background: "transparent", color: "inherit", boxSizing: "border-box",
+        border: `1px solid ${t.border}`, background: t.card, color: t.text, boxSizing: "border-box",
+        colorScheme: dark ? "dark" : "light",   // dark dropdown list + calendar icon in dark mode
     };
+    const opt = { background: t.card, color: t.text };   // option rows (Windows Chrome/Edge)
     const label = { fontSize: 11, fontWeight: 600, color: t.dim, marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.4 };
     const filtersOn = JSON.stringify(f) !== JSON.stringify(EMPTY);
 
@@ -191,40 +214,42 @@ export default function ReportsPage() {
                     <div>
                         <div style={label}>Disease</div>
                         <select value={f.disease} onChange={set("disease")} style={input}>
-                            <option value="all">All diseases</option>
-                            {DISEASES.map((d) => <option key={d} value={d}>{d}</option>)}
+                            <option style={opt} value="all">All diseases</option>
+                            {DISEASES.map((d) => <option style={opt} key={d} value={d}>{d}</option>)}
                         </select>
                     </div>
                     <div>
                         <div style={label}>Source</div>
                         <select value={f.source} onChange={set("source")} style={input}>
-                            <option value="all">All sources</option>
-                            <option value="single">Single analysis</option>
-                            <option value="full_screening">Full screening</option>
+                            <option style={opt} value="all">All sources</option>
+                            <option style={opt} value="single">Single analysis</option>
+                            <option style={opt} value="full_screening">Full screening</option>
                         </select>
                     </div>
                     <div>
                         <div style={label}>Result</div>
                         <select value={f.status} onChange={set("status")} style={input}>
-                            <option value="all">All results</option>
-                            <option value="Positive">Positive only</option>
-                            <option value="Normal">Normal only</option>
+                            <option style={opt} value="all">All results</option>
+                            <option style={opt} value="Positive">Positive only</option>
+                            <option style={opt} value="Normal">Normal only</option>
                         </select>
                     </div>
                     {isAdmin && (
                         <div>
                             <div style={label}>Doctor</div>
                             <select value={f.doctor_id} onChange={set("doctor_id")} style={input}>
-                                <option value="">All doctors</option>
-                                {doctors.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                                <option style={opt} value="">All doctors</option>
+                                {doctors.map(([id, name]) => <option style={opt} key={id} value={id}>{name}</option>)}
                             </select>
                         </div>
                     )}
                     <div>
                         <div style={label}>Patient</div>
                         <select value={f.patient_id} onChange={set("patient_id")} style={input}>
-                            <option value="">All patients</option>
-                            {patients.map(([code, name]) => <option key={code} value={code}>{code}{name ? ` - ${name}` : ""}</option>)}
+                            <option style={opt} value="">All patients</option>
+                            {patients.map(([code, name]) => (
+                                <option style={opt} key={code} value={code}>{patientLabel(code, name)}</option>
+                            ))}
                         </select>
                     </div>
                 </div>
@@ -274,20 +299,21 @@ export default function ReportsPage() {
             {/* ── All results: one row per analysis, Full Screening results grouped ── */}
             {!loading && view === "all" && (
                 <div style={{ display: "grid", gap: 10 }}>
-                    {listItems.map((item) =>
+                    {pgList.pageItems.map((item) =>
                         item.type === "single" ? (
                             <ResultRow key={item.row.result_id} r={item.row} busy={busy} act={act} />
                         ) : (
                             <ScreeningCard key={item.id} rows={item.rows} busy={busy} act={act} />
                         )
                     )}
+                    <Pagination pg={pgList} label="items" />
                 </div>
             )}
 
             {/* ── Grouped: by doctor / disease / patient ──────────── */}
             {!loading && view !== "all" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
-                    {groups.map((g) => (
+                    {pgGroups.pageItems.map((g) => (
                         <Card key={g.key}>
                             <div style={{ fontWeight: 700, fontSize: 15 }}>{g.title}</div>
                             {g.sub && g.sub !== g.title && <div style={{ fontSize: 12.5, color: t.dim, marginTop: 2 }}>{g.sub}</div>}
@@ -311,9 +337,9 @@ export default function ReportsPage() {
                                         <div key={d} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                                             <span>{d}</span>
                                             <span style={{ color: t.dim }}>
-                        {c.scans} scan{c.scans === 1 ? "" : "s"} ·{" "}
+                                                {c.scans} scan{c.scans === 1 ? "" : "s"} ·{" "}
                                                 <span style={{ color: c.positive ? "#ef4444" : "#22c55e" }}>{c.positive} positive</span>
-                      </span>
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
@@ -333,6 +359,9 @@ export default function ReportsPage() {
                     ))}
                 </div>
             )}
+
+            {/* ── Pagination for the grouped views ───────────────── */}
+            {!loading && view !== "all" && <Pagination pg={pgGroups} sizes={[12, 24, 48]} label="groups" />}
         </div>
     );
 }
@@ -358,7 +387,7 @@ function ResultRow({ r, busy, act, compact = false }) {
                     {compact
                         ? (typeof r.confidence === "number" ? `${r.confidence.toFixed(2)}% confidence` : "")
                         : <>
-                            {r.patient_code}{r.patient_name ? ` · ${r.patient_name}` : ""} · {r.doctor_name || "Unknown doctor"} · {fmtDate(r.created_at)}
+                            {patientLabel(r.patient_code, r.patient_name)} · {r.doctor_name || "Unknown doctor"} · {fmtDate(r.created_at)}
                             {typeof r.confidence === "number" ? ` · ${r.confidence.toFixed(2)}%` : ""}
                         </>}
                 </div>
@@ -404,7 +433,7 @@ function ScreeningCard({ rows, busy, act }) {
                         </Pill>
                     </div>
                     <div style={{ fontSize: 12.5, color: t.dim, marginTop: 3 }}>
-                        {first.patient_code}{first.patient_name ? ` · ${first.patient_name}` : ""} · {first.doctor_name || "Unknown doctor"} · {fmtDate(first.created_at)} · {rows.length} engine{rows.length === 1 ? "" : "s"}
+                        {patientLabel(first.patient_code, first.patient_name)} · {first.doctor_name || "Unknown doctor"} · {fmtDate(first.created_at)} · {rows.length} engine{rows.length === 1 ? "" : "s"}
                     </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
