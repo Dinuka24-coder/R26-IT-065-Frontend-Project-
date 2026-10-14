@@ -10,6 +10,7 @@ import TbAnalyzingPanel from "./TbAnalyzingPanel";
 import TbGatekeeperPanel from "./TbGatekeeperPanel";
 import TbRejectionPanel from "./TbRejectionPanel";
 import TbResultTabs from "./TbResultTabs";
+import DownloadReportButton from "../../../components/ui/DownloadReportButton";
 
 // Component 3 only. Scoped rules that keep the page inside the viewport without
 // touching shared components or global CSS (same injection pattern as
@@ -155,6 +156,38 @@ export default function TuberculosisAnalysis({ navigate }) {
         <div className="tb-uploader-cap">
           <ScanUploader preview={preview} onFile={onFile} onClear={clearFile} />
         </div>
+
+        {/*<div>
+        <h3>Results - Debug</h3>
+        <pre>
+            {(() => {
+              try {
+                return JSON.stringify(result, null, 2);
+              } catch {
+                return "Unable to display result structure";
+              }
+            })()}
+        </pre>
+        </div>*/}
+
+        {/* Medical Disclaimer */}
+            {/*<div style={{ display: "flex", alignItems: "start", gap: 8, padding: "8px 12px", fontSize: 11, color: t.dim, opacity: 0.8 }}>
+              <Info size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                <strong>Clinical Note:</strong> AI predictions are intended to assist diagnostic workflows and must be verified by a licensed radiologist or physician.
+              </span>
+            </div> */}
+
+            {/* PDF report for this pneumonia result */}
+            {result?.result_id && (
+        <DownloadReportButton
+            component="tuberculosis"
+            resultId={result.result_id}
+            full
+        />
+)}
+          
+
       </AnalysisLayout>
     </div>
   );
