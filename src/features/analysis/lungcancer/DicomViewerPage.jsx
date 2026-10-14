@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader, Minus, Plus, RotateCcw } from "lucide-react";
+import { AlertTriangle, Download, Loader, Minus, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../../context/ThemeContext";
 import { RenderingEngine, Enums as CoreEnums } from "@cornerstonejs/core";
@@ -46,6 +46,10 @@ const WW_MIN = 50;
 const WW_MAX = 3000;
 const WW_STEP = 10;
 
+// Region marking
+const MARK_COLOR = "#ff3b30";
+const MIN_BOX_PX = 5; // ignore accidental clicks
+
 let toolsRegisteredGlobally = false;
 
 export default function DicomViewerPage({
@@ -84,9 +88,225 @@ export default function DicomViewerPage({
     const [analyzing, setAnalyzing] = useState(false);
     const [analyzeError, setAnalyzeError] = useState("");
 
+    // --- Region marking (clinician-drawn boxes) ---------------------------
+    // Boxes live in browser memory only (nothing is sent to the backend or
+    // stored). Each box is kept as two WORLD points so it stays attached to
+    // the anatomy while the user zooms/pans; they are projected back to
+    // canvas pixels on every redraw.
+    const [markMode, setMarkMode] = useState(false);
+    const [boxes, setBoxes] = useState({}); // { [sliceIndex]: [{ a: [x,y,z], b: [x,y,z] }] }
+    const [draft, setDraft] = useState(null); // { x0, y0, x1, y1 } in CSS px
+    const [saveError, setSaveError] = useState("");
+    const wrapRef = useRef(null);
+    const overlayRef = useRef(null);
+    const sliceIndexRef = useRef(0);
+    const drawRef = useRef(() => {});
+
     const activePreset = Object.entries(PRESETS).find(
         ([, p]) => p.wc === wc && p.ww === ww
     )?.[0];
+
+    sliceIndexRef.current = sliceIndex;
+    const sliceBoxes = boxes[sliceIndex] || [];
+
+    // Draws the boxes of the current slice (and the box being dragged) onto
+    // a 2D context. `scale` converts CSS px to the target canvas' pixels
+    // (devicePixelRatio for the overlay, canvas.width / clientWidth for the
+    // exported PNG).
+    function paintBoxes(ctx, scale, draftRect) {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        ctx.save();
+        ctx.lineWidth = 2 * scale;
+        ctx.strokeStyle = MARK_COLOR;
+        ctx.fillStyle = MARK_COLOR;
+        ctx.font = `bold ${12 * scale}px sans-serif`;
+        sliceBoxes.forEach((b, i) => {
+            const pa = viewport.worldToCanvas(b.a);
+            const pb = viewport.worldToCanvas(b.b);
+            const x = Math.min(pa[0], pb[0]) * scale;
+            const y = Math.min(pa[1], pb[1]) * scale;
+            const w = Math.abs(pa[0] - pb[0]) * scale;
+            const h = Math.abs(pa[1] - pb[1]) * scale;
+            ctx.strokeRect(x, y, w, h);
+            ctx.fillText(String(i + 1), x + 3 * scale, y >= 16 * scale ? y - 4 * scale : y + 14 * scale);
+        });
+        if (draftRect) {
+            ctx.setLineDash([6 * scale, 4 * scale]);
+            ctx.strokeRect(
+                Math.min(draftRect.x0, draftRect.x1) * scale,
+                Math.min(draftRect.y0, draftRect.y1) * scale,
+                Math.abs(draftRect.x1 - draftRect.x0) * scale,
+                Math.abs(draftRect.y1 - draftRect.y0) * scale
+            );
+        }
+        ctx.restore();
+    }
+
+    function redrawOverlay() {
+        const canvas = overlayRef.current;
+        const el = elementRef.current;
+        if (!canvas || !el) return;
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.round(el.clientWidth * dpr);
+        const h = Math.round(el.clientHeight * dpr);
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+        }
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // While a new slice is loading the old image is still on screen, so
+        // do not draw the new slice's boxes over it.
+        if (imageLoading) return;
+        try {
+            paintBoxes(ctx, dpr, draft);
+        } catch {
+            // Viewport not ready yet - the next render event redraws.
+        }
+    }
+    drawRef.current = redrawOverlay;
+
+    // Redraw after every React render (boxes / draft / slice / loading)...
+    useEffect(() => {
+        redrawOverlay();
+    });
+
+    // ...and whenever Cornerstone itself re-renders or the camera moves
+    // (pan, zoom, reset, window change), so boxes follow the image.
+    useEffect(() => {
+        const el = elementRef.current;
+        if (!el) return;
+        const redraw = () => drawRef.current();
+        el.addEventListener(CoreEnums.Events.CAMERA_MODIFIED, redraw);
+        el.addEventListener(CoreEnums.Events.IMAGE_RENDERED, redraw);
+        window.addEventListener("resize", redraw);
+        return () => {
+            el.removeEventListener(CoreEnums.Events.CAMERA_MODIFIED, redraw);
+            el.removeEventListener(CoreEnums.Events.IMAGE_RENDERED, redraw);
+            window.removeEventListener("resize", redraw);
+        };
+    }, [seriesId]);
+
+    // Drag-to-draw while Mark Region is on. The mousedown is caught in the
+    // CAPTURE phase on the wrapper and stopped, so Cornerstone's Pan tool
+    // never sees the left-button drag. Right-drag zoom and the wheel are
+    // untouched.
+    useEffect(() => {
+        const wrap = wrapRef.current;
+        const el = elementRef.current;
+        if (!markMode || !wrap || !el) return;
+
+        const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+        const pos = (e) => {
+            const r = el.getBoundingClientRect();
+            return [clamp(e.clientX - r.left, 0, r.width), clamp(e.clientY - r.top, 0, r.height)];
+        };
+        let start = null;
+
+        const onMove = (e) => {
+            if (!start) return;
+            const [x, y] = pos(e);
+            setDraft({ x0: start[0], y0: start[1], x1: x, y1: y });
+        };
+        const stopListening = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+        };
+        function onUp(e) {
+            stopListening();
+            if (!start) return;
+            const [x, y] = pos(e);
+            const [sx, sy] = start;
+            start = null;
+            setDraft(null);
+            if (Math.abs(x - sx) < MIN_BOX_PX || Math.abs(y - sy) < MIN_BOX_PX) return;
+            const viewport = viewportRef.current;
+            const a = viewport?.canvasToWorld([sx, sy]);
+            const b = viewport?.canvasToWorld([x, y]);
+            if (!a || !b) return;
+            const idx = sliceIndexRef.current;
+            setBoxes((prev) => ({
+                ...prev,
+                [idx]: [...(prev[idx] || []), { a: [...a], b: [...b] }],
+            }));
+        }
+        const onDown = (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            start = pos(e);
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+        };
+
+        wrap.addEventListener("mousedown", onDown, true);
+        return () => {
+            wrap.removeEventListener("mousedown", onDown, true);
+            stopListening();
+            setDraft(null);
+        };
+    }, [markMode]);
+
+    function undoBox() {
+        setBoxes((prev) => {
+            const rest = (prev[sliceIndex] || []).slice(0, -1);
+            const next = { ...prev };
+            if (rest.length) next[sliceIndex] = rest;
+            else delete next[sliceIndex];
+            return next;
+        });
+    }
+
+    function clearBoxes() {
+        setBoxes((prev) => {
+            const next = { ...prev };
+            delete next[sliceIndex];
+            return next;
+        });
+    }
+
+    // Saves the slice exactly as displayed (current window, zoom and pan)
+    // with the boxes drawn on top, as a PNG download. Nothing is uploaded.
+    // The filename contains only the slice number - no patient data.
+    function handleSaveMarked() {
+        setSaveError("");
+        const viewport = viewportRef.current;
+        const el = elementRef.current;
+        if (!viewport || !el) return;
+        try {
+            const src = viewport.getCanvas();
+            const out = document.createElement("canvas");
+            out.width = src.width;
+            out.height = src.height;
+            const ctx = out.getContext("2d");
+            ctx.drawImage(src, 0, 0);
+            const scale = src.width / el.clientWidth;
+            paintBoxes(ctx, scale, null);
+            ctx.save();
+            ctx.font = `${11 * scale}px sans-serif`;
+            ctx.fillStyle = "rgba(255,255,255,0.75)";
+            ctx.fillText("Clinician-marked region(s)", 8 * scale, out.height - 8 * scale);
+            ctx.restore();
+            out.toBlob((blob) => {
+                if (!blob) {
+                    setSaveError("Could not create the image.");
+                    return;
+                }
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `slice-${String(sliceIndex + 1).padStart(3, "0")}-marked.png`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }, "image/png");
+        } catch (err) {
+            console.error("Save marked slice failed:", err);
+            setSaveError("Could not save this slice as an image.");
+        }
+    }
 
     // --- Initialize from props (handed off by DicomFileSelector's
     // inspectDicom() result via the parent, LungCancerAnalysis.jsx) ------
@@ -374,13 +594,18 @@ export default function DicomViewerPage({
 
             <div className="card padded dicom-viewer-card">
                 <div
+                    ref={wrapRef}
                     className="dicom-viewport-wrap"
                     style={{ height: 480, minHeight: 480 }}
                 >
                     <div
                         ref={elementRef}
                         className="dicom-viewport"
-                        style={{ width: "100%", height: 480, minHeight: 480 }}
+                        style={{ width: "100%", height: 480, minHeight: 480, cursor: markMode ? "crosshair" : undefined }}
+                    />
+                    <canvas
+                        ref={overlayRef}
+                        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none" }}
                     />
                     {imageLoading && (
                         <div className="dicom-viewport-loading">
@@ -398,7 +623,7 @@ export default function DicomViewerPage({
 
                 <div className="dicom-controls">
                     <div className="dicom-slice-row">
-            <span className="dicom-slice-label">
+            <span className="dicom-slice-label" style={{ color: t.text }}>
               Slice: {sliceIndex + 1} / {totalSlices}
             </span>
                         <input
@@ -438,14 +663,43 @@ export default function DicomViewerPage({
                         <Button variant="secondary" onClick={handleReset}>
                             <RotateCcw size={14} /> Reset
                         </Button>
-                        <span className="dicom-tool-hint">
+                        <span className="dicom-tool-hint" style={{ color: t.dim }}>
               Drag to pan · right-drag to zoom
             </span>
                     </div>
 
+                    <div className="dicom-tool-row">
+                        <Button
+                            variant={markMode ? "primary" : "secondary"}
+                            onClick={() => setMarkMode((m) => !m)}
+                        >
+                            <Square size={14} /> {markMode ? "Marking: On" : "Mark Region"}
+                        </Button>
+                        <Button variant="secondary" disabled={sliceBoxes.length === 0} onClick={undoBox}>
+                            Undo
+                        </Button>
+                        <Button variant="secondary" disabled={sliceBoxes.length === 0} onClick={clearBoxes}>
+                            <Trash2 size={14} /> Clear
+                        </Button>
+                        <Button variant="secondary" disabled={sliceBoxes.length === 0} onClick={handleSaveMarked}>
+                            <Download size={14} /> Save Marked Slice
+                        </Button>
+                        <span className="dicom-tool-hint" style={{ color: t.dim }}>
+                            {markMode
+                                ? "Drag on the image to draw a box"
+                                : `${sliceBoxes.length} region${sliceBoxes.length === 1 ? "" : "s"} marked on this slice`}
+                        </span>
+                    </div>
+                    {saveError && (
+                        <div className="error-box">
+                            <AlertTriangle size={16} />
+                            <span>{saveError}</span>
+                        </div>
+                    )}
+
                     <div className="dicom-window-section">
                         <div className="dicom-window-row">
-                            <span className="dicom-window-label">Window:</span>
+                            <span className="dicom-window-label" style={{ color: t.text }}>Window:</span>
                             {Object.entries(PRESETS).map(([key, p]) => (
                                 <Button
                                     key={key}
@@ -459,7 +713,7 @@ export default function DicomViewerPage({
 
                         <div className="dicom-window-sliders">
                             <div className="dicom-window-slider-row">
-                                <label htmlFor="dicom-wc-slider" className="dicom-window-slider-label">
+                                <label htmlFor="dicom-wc-slider" className="dicom-window-slider-label" style={{ color: t.dim }}>
                                     Window Center (WC)
                                 </label>
                                 <input
@@ -472,11 +726,11 @@ export default function DicomViewerPage({
                                     onChange={(e) => setWc(parseFloat(e.target.value))}
                                     className="dicom-window-slider"
                                 />
-                                <span className="dicom-window-slider-value">{wc}</span>
+                                <span className="dicom-window-slider-value" style={{ color: t.text }}>{wc}</span>
                             </div>
 
                             <div className="dicom-window-slider-row">
-                                <label htmlFor="dicom-ww-slider" className="dicom-window-slider-label">
+                                <label htmlFor="dicom-ww-slider" className="dicom-window-slider-label" style={{ color: t.dim }}>
                                     Window Width (WW)
                                 </label>
                                 <input
@@ -489,7 +743,7 @@ export default function DicomViewerPage({
                                     onChange={(e) => setWw(parseFloat(e.target.value))}
                                     className="dicom-window-slider"
                                 />
-                                <span className="dicom-window-slider-value">{ww}</span>
+                                <span className="dicom-window-slider-value" style={{ color: t.text }}>{ww}</span>
                             </div>
                         </div>
                     </div>
