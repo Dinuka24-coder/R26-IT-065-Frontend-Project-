@@ -398,7 +398,7 @@ export default function DicomViewerPage({
 
                 <div className="dicom-controls">
                     <div className="dicom-slice-row">
-            <span className="dicom-slice-label">
+            <span className="dicom-slice-label" style={{ color: t.text }}>
               Slice: {sliceIndex + 1} / {totalSlices}
             </span>
                         <input
@@ -438,14 +438,14 @@ export default function DicomViewerPage({
                         <Button variant="secondary" onClick={handleReset}>
                             <RotateCcw size={14} /> Reset
                         </Button>
-                        <span className="dicom-tool-hint">
+                        <span className="dicom-tool-hint" style={{ color: t.dim }}>
               Drag to pan · right-drag to zoom
             </span>
                     </div>
 
                     <div className="dicom-window-section">
                         <div className="dicom-window-row">
-                            <span className="dicom-window-label">Window:</span>
+                            <span className="dicom-window-label" style={{ color: t.text }}>Window:</span>
                             {Object.entries(PRESETS).map(([key, p]) => (
                                 <Button
                                     key={key}
@@ -459,7 +459,7 @@ export default function DicomViewerPage({
 
                         <div className="dicom-window-sliders">
                             <div className="dicom-window-slider-row">
-                                <label htmlFor="dicom-wc-slider" className="dicom-window-slider-label">
+                                <label htmlFor="dicom-wc-slider" className="dicom-window-slider-label" style={{ color: t.dim }}>
                                     Window Center (WC)
                                 </label>
                                 <input
@@ -472,11 +472,11 @@ export default function DicomViewerPage({
                                     onChange={(e) => setWc(parseFloat(e.target.value))}
                                     className="dicom-window-slider"
                                 />
-                                <span className="dicom-window-slider-value">{wc}</span>
+                                <span className="dicom-window-slider-value" style={{ color: t.text }}>{wc}</span>
                             </div>
 
                             <div className="dicom-window-slider-row">
-                                <label htmlFor="dicom-ww-slider" className="dicom-window-slider-label">
+                                <label htmlFor="dicom-ww-slider" className="dicom-window-slider-label" style={{ color: t.dim }}>
                                     Window Width (WW)
                                 </label>
                                 <input
@@ -489,7 +489,7 @@ export default function DicomViewerPage({
                                     onChange={(e) => setWw(parseFloat(e.target.value))}
                                     className="dicom-window-slider"
                                 />
-                                <span className="dicom-window-slider-value">{ww}</span>
+                                <span className="dicom-window-slider-value" style={{ color: t.text }}>{ww}</span>
                             </div>
                         </div>
                     </div>

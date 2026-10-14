@@ -19,6 +19,7 @@ import {
 } from "./cornerstoneSetup.js";
 import Button from "../../../components/ui/Button.jsx";
 import PageHeader from "../../../components/ui/PageHeader.jsx";
+import { useTheme } from "../../../context/ThemeContext";
 
 // Component 4 (CT Lung Cancer) 3D volume viewer. SEPARATE from
 // DicomViewerPage.jsx (the existing 2D slice viewer) - does not modify
@@ -123,6 +124,7 @@ function formatAcquisitionTime(raw) {
 }
 
 export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) {
+    const { t } = useTheme();
     const elementAxialRef = useRef(null);
     const elementCoronalRef = useRef(null);
     const elementSagittalRef = useRef(null);
@@ -677,7 +679,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                     {acquisitions && acquisitions.length > 0 && (
                         <div style={{ marginTop: 16 }}>
                             {acquisitions.map((a) => (
-                                <div key={a.acquisition_number ?? "default"} className="dicom-tool-hint" style={{ marginBottom: 6 }}>
+                                <div key={a.acquisition_number ?? "default"} className="dicom-tool-hint" style={{ marginBottom: 6, color: t.dim }}>
                                     Acquisition {a.acquisition_number ?? "(default)"}: {a.slice_count} slices -
                                     {a.valid ? " usable" : ` unavailable (${a.rejection_reason || "geometry invalid"})`}
                                 </div>
@@ -713,7 +715,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                             <div className="dicom-window-row" style={{ justifyContent: "space-between" }}>
                                 <div>
                                     <div style={{ fontWeight: 600 }}>Acquisition {a.acquisition_number}</div>
-                                    <div className="dicom-tool-hint">
+                                    <div className="dicom-tool-hint" style={{ color: t.dim }}>
                                         {a.slice_count} slices
                                         {a.acquisition_time && a.acquisition_time.length > 0
                                             ? ` \u00b7 Acquisition time: ${formatAcquisitionTime(a.acquisition_time[0])}`
@@ -767,7 +769,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
 
                 {mode === "mpr" && (
                     <div className="dicom-tool-row" style={{ marginBottom: 12 }}>
-                        <span className="dicom-window-label">Window:</span>
+                        <span className="dicom-window-label" style={{ color: t.text }}>Window:</span>
                         {Object.entries(MPR_WINDOW_PRESETS).map(([key, preset]) => (
                             <Button
                                 key={key}
@@ -782,7 +784,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
 
                 {mode === "3d" && (
                     <div className="dicom-tool-row" style={{ marginBottom: 12 }}>
-                        <span className="dicom-window-label">Rendering:</span>
+                        <span className="dicom-window-label" style={{ color: t.text }}>Rendering:</span>
                         {Object.entries(RENDER_3D_PRESETS).map(([key, preset]) => (
                             <Button
                                 key={key}
@@ -797,7 +799,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
 
                 {mode === "3d" && (
                     <div className="dicom-tool-row" style={{ marginBottom: 12 }}>
-                        <span className="dicom-window-label">Background:</span>
+                        <span className="dicom-window-label" style={{ color: t.text }}>Background:</span>
                         <Button
                             variant={background3D === "black" ? "primary" : "secondary"}
                             onClick={() => applyBackground3D("black")}
@@ -895,7 +897,7 @@ export default function VolumeViewerPage({ seriesId: initialSeriesId, onBack }) 
                 )}
 
                 <div className="dicom-tool-row" style={{ marginTop: 12 }}>
-                    <span className="dicom-tool-hint">
+                    <span className="dicom-tool-hint" style={{ color: t.dim }}>
                         {mode === "mpr"
                             ? "Drag to pan · right-drag to zoom · scroll to change slice"
                             : "Drag to pan · right-drag to zoom · middle-drag to rotate"}
