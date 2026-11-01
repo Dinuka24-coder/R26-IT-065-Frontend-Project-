@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { UserPlus, Eye, Trash2, CheckCircle, KeyRound } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import { listDoctors, createDoctor, deleteDoctor, resetDoctorPassword } from "../../api/userApi";
@@ -9,8 +9,11 @@ import Field from "../../components/ui/Field";
 import Modal from "../../components/ui/Modal";
 import Loader from "../../components/ui/Loader";
 import Avatar from "../../components/ui/Avatar";
+import SearchBox from "../../components/ui/SearchBox";
+import Pagination, { usePagination } from "../../components/ui/Pagination";
 
 const EMPTY = { full_name: "", email: "", contact_number: "", registered_number: "", password: "" };
+const SEARCH_FIELDS = ["full_name", "email", "registered_number", "contact_number"];
 
 export default function ManageDoctorsPage({ navigate }) {
   const { t } = useTheme();
@@ -20,6 +23,7 @@ export default function ManageDoctorsPage({ navigate }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState(EMPTY);
+  const [query, setQuery] = useState("");
 
   // ── Password reset state ─────────────────────────────────────
   const [resetting, setResetting] = useState(null);
@@ -35,6 +39,16 @@ export default function ManageDoctorsPage({ navigate }) {
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
+
+  // ── Search + pages ───────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return doctors;
+    return doctors.filter((d) =>
+        SEARCH_FIELDS.some((k) => String(d[k] ?? "").toLowerCase().includes(q))
+    );
+  }, [doctors, query]);
+  const pg = usePagination(filtered, 10, query); // back to page 1 when the search changes
 
   async function add() {
     setError(""); setSaving(true);
@@ -64,11 +78,21 @@ export default function ManageDoctorsPage({ navigate }) {
 
   return (
       <div>
-        <PageHeader title="Manage Doctors" subtitle={`${doctors.length} doctor accounts`}
+        <PageHeader title="Manage Doctors"
+                    subtitle={query
+                        ? `${filtered.length} of ${doctors.length} doctors match "${query.trim()}"`
+                        : `${doctors.length} doctor accounts`}
                     actions={<Button onClick={() => setShow(true)}><UserPlus size={15} /> Add Doctor</Button>} />
 
+        {doctors.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <SearchBox value={query} onChange={setQuery}
+                         placeholder="Search by name, email, SLMC number or contact…" />
+            </div>
+        )}
+
         <div style={{ display: "grid", gap: 12 }}>
-          {doctors.map((d) => (
+          {pg.pageItems.map((d) => (
               <Card key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
                   <Avatar name={d.full_name} size={44} />
@@ -97,7 +121,19 @@ export default function ManageDoctorsPage({ navigate }) {
                 No doctors yet. Add one to get started.
               </Card>
           )}
+          {doctors.length > 0 && filtered.length === 0 && (
+              <Card style={{ textAlign: "center", padding: 40, color: t.dim }}>
+                No doctors match "{query.trim()}".{" "}
+                <button type="button" onClick={() => setQuery("")}
+                        style={{ background: "none", border: 0, padding: 0, cursor: "pointer",
+                          color: t.accent, fontWeight: 600, fontSize: "inherit", fontFamily: "inherit" }}>
+                  Clear search
+                </button>
+              </Card>
+          )}
         </div>
+
+        <Pagination pg={pg} label="doctors" />
 
         {/* ── Create Doctor ────────────────────────────────────── */}
         {show && (

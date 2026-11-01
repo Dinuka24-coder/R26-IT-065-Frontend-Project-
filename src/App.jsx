@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
-
+import Home from "./pages/Home.jsx";
+import useLandingPage from "./hooks/useLandingPage";
 import LoginPage from "./features/auth/LoginPage";
 import ChangePasswordModal from "./features/auth/ChangePasswordModal";
 import DashboardPage from "./features/dashboard/DashboardPage";
@@ -44,7 +45,48 @@ function Shell() {
   const [page, setPage] = useState(loadPage);
   const [ctx, setCtx] = useState(loadCtx);
 
-  if (!user) return <LoginPage />;
+  // ── Public home page (an admin can switch it on/off in Settings) ──
+  const landing = useLandingPage(); // "loading" | "on" | "off"
+  // Clear "#contact" etc. left in the address bar from the home page
+  useEffect(() => {
+    if (user && window.location.hash) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, [user]);
+  const [showLogin, setShowLogin] = useState(
+      () => sessionStorage.getItem("pulmo_show_login") === "1"
+  );
+  const openLogin = () => {
+    sessionStorage.setItem("pulmo_show_login", "1");
+    setShowLogin(true);
+  };
+  const backToHome = () => {
+    sessionStorage.removeItem("pulmo_show_login");
+    setShowLogin(false);
+  };
+
+  if (!user) {
+    if (landing === "loading") return null;
+    if (landing === "on" && !showLogin) return <Home onLogin={openLogin} />;
+    return (
+        <>
+          {landing === "on" && (
+              <button
+                  type="button"
+                  onClick={backToHome}
+                  style={{
+                    position: "fixed", top: 16, left: 16, zIndex: 50,
+                    padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0",
+                    background: "#fff", color: "#0f172a", fontWeight: 600, cursor: "pointer",
+                  }}
+              >
+                ← Back to home
+              </button>
+          )}
+          <LoginPage />
+        </>
+    );
+  }
 
   // ── Force password change if an admin reset it ──────────────
   if (user.must_change_password) {
